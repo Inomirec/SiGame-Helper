@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-import ssl
 import time
 import urllib.error
 import urllib.request
@@ -180,25 +179,7 @@ async def resolve(url: str) -> dict[str, Any]:
     return result
 
 
-def _ssl_context() -> ssl.SSLContext:
-    """Контекст с набором корневых сертификатов certifi.
-
-    Системного хранилища Windows Python не видит, и CDN вроде okcdn.ru
-    (туда ведут ссылки VK) отваливаются с «unable to get local issuer
-    certificate». yt-dlp работает именно потому, что носит certifi с собой.
-    """
-    global _ssl_cached
-    if _ssl_cached is None:
-        try:
-            import certifi
-
-            _ssl_cached = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            _ssl_cached = ssl.create_default_context()
-    return _ssl_cached
-
-
-_ssl_cached: ssl.SSLContext | None = None
+from .certs import ssl_context as _ssl_context
 
 
 def open_upstream(stream: Stream, range_header: str | None) -> tuple[Any, dict[str, str], int]:

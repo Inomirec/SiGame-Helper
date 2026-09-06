@@ -53,8 +53,10 @@ def _download(url: str, destination: Path, report) -> None:
     """Скачивание блокирующим кодом — вызывается в отдельном потоке."""
     import urllib.request
 
+    from .certs import ssl_context
+
     request = urllib.request.Request(url, headers={"User-Agent": "SiGameHelper"})
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with urllib.request.urlopen(request, timeout=60, context=ssl_context()) as response:
         total = int(response.headers.get("Content-Length") or 0)
         done = 0
         with destination.open("wb") as handle:
