@@ -79,6 +79,24 @@ def referer_for(url: str) -> str | None:
     return f"{parts.scheme}://{parts.hostname}/"
 
 
+def is_network_failure(text: str) -> str | None:
+    """Похожа ли ошибка загрузчика на обрыв связи, а не на неподходящую ссылку.
+
+    Нужно, чтобы не подсовывать gallery-dl видеоссылку только потому, что
+    у человека не открылся сервер видео: он ответит «Unsupported URL»
+    и запутает и без того длинный лог.
+    """
+    low = text.lower()
+    for mark in (
+        "timed out", "connection reset", "recv failure", "operation too slow",
+        "connection aborted", "remotedisconnected", "connection refused",
+        "temporary failure in name resolution", "giving up after",
+    ):
+        if mark in low:
+            return mark
+    return None
+
+
 def _common_args(url: str | None = None) -> list[str]:
     """Общие флаги, зависящие от настроек (куки, прокси, Referer)."""
     settings = config.load().download
@@ -128,8 +146,18 @@ def build_ytdlp_args(
         # Windows не любит длинные имена и запрещённые символы.
         "--windows-filenames",
         "--trim-filenames", "180",
-        "--retries", "5",
-        "--fragment-retries", "10",
+        # Фильтры провайдеров чаще не блокируют наглухо, а «подвешивают»
+        # соединение: одна попытка из нескольких проходит. Поэтому лучше
+        # быстро сдаваться и пробовать снова, чем ждать по 20 секунд:
+        # раньше пять попыток съедали полторы минуты, теперь за то же время
+        # их будет вдвое больше.
+        "--socket-timeout", "8",
+        "--retries", "10",
+        "--fragment-retries", "15",
+        # Фильтры провайдеров душат именно длинные соединения: файл начинает
+        # качаться и замирает. Отдельный запрос на каждые 10 МБ переживает
+        # это лучше — оборвался кусок, повторяется только он.
+        "--http-chunk-size", "10M",
         "--concurrent-fragments", "4",
         "-P", str(output_dir),
         "-o", settings.filename_template,
@@ -184,6 +212,31 @@ def build_ytdlp_args(
     return args
 
 
+def _readable_args(args: list[str]) -> str:
+    """Строка запуска для журнала: без пути к самому загрузчику и без плюмбинга.
+
+    Служебные ключи (шаблон прогресса, временный файл с путями) занимают
+    полстроки и человеку ничего не говорят, поэтому их прячем. Всё, что
+    влияет на результат — сеть, куки, формат, отрезок — остаётся.
+    """
+    # Ключ -> сколько значений за ним съесть.
+    hidden = {
+        "--progress-template": 1, "-P": 1, "-o": 1, "--trim-filenames": 1,
+        "--print-to-file": 2,
+    }
+    parts: list[str] = []
+    skip = 0
+    for item in args[1:]:
+        if skip:
+            skip -= 1
+            continue
+        if item in hidden:
+            skip = hidden[item]
+            continue
+        parts.append(f'"{item}"' if " " in item else item or '""')
+    return " ".join(parts)
+
+
 async def run_ytdlp(
     ctx: JobContext,
     url: str,
@@ -206,7 +259,10 @@ async def run_ytdlp(
         audio_format=audio_format, print_file=print_file,
         section=section,
     )
-    ctx.log(f"$ yt-dlp {url}")
+    # Пишем команду целиком, а не только ссылку: когда что-то не качается,
+    # первый вопрос — с какими флагами запустился загрузчик. Без этой строки
+    # по журналу нельзя отличить старую версию программы от новой.
+    ctx.log("$ yt-dlp " + _readable_args(args))
 
     process = await asyncio.create_subprocess_exec(
         *args,
@@ -274,12 +330,17 @@ def explain_failure(text: str) -> str:
     blocked_host = any(
         host in low for host in ("googlevideo.com", "ytimg.com", "youtube.com")
     )
-    timed_out = "read timed out" in low or "timed out" in low or "connection reset" in low
-    if blocked_host and timed_out:
+    if blocked_host and is_network_failure(text):
         return (
             "YouTube не отдаёт сам видеофайл: сайт отвечает, а сервер с видео — нет.\n"
-            "Почти всегда это блокировка у провайдера. Помогает включить обход "
-            "блокировок или прописать прокси в настройках программы.\n\n"
+            "Это блокировка у провайдера, и программа обойти её не может.\n\n"
+            "Что делать:\n"
+            "  1. Включить VPN — помогает всегда.\n"
+            "  2. Либо прописать прокси в настройках программы.\n"
+            "  3. Если пользуетесь Zapret или GoodbyeDPI — попробуйте у них "
+            "другую стратегию обхода: часть роликов проходит не при всякой.\n\n"
+            "На другие сайты это не влияет: VK, Rutube и остальные качаются "
+            "как обычно.\n\n"
             + text
         )
 

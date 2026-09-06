@@ -352,7 +352,7 @@ def submit_download(request: DownloadRequest, item: DownloadItem) -> Job:
                     audio_format=request.audio_format, section=section,
                 )
             except RuntimeError as exc:
-                if request.mode != "auto":
+                if request.mode != "auto" or download.is_network_failure(str(exc)):
                     raise
                 ctx.log(f"yt-dlp: {exc}. Пробую gallery-dl…")
                 files = await download.run_gallery_dl(

@@ -90,6 +90,25 @@ def create_app() -> FastAPI:
         expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
     )
 
+    @app.middleware("http")
+    async def no_api_cache(request, call_next):
+        """Запрещает кэшировать ответы API.
+
+        У JSON-ответов не было заголовков кэширования, и встроенный браузер
+        имел полное право оставить их у себя. Из-за этого медиатека могла
+        показывать вес файла, каким он был на момент первого запроса, —
+        например, недокачанным. Помогал только перезапуск программы.
+
+        Картинки (миниатюры, ленты кадров) свой заголовок ставят сами: их
+        имена содержат размер и время файла, поэтому они кэшируются надолго
+        и остаются верными.
+        """
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/api") and "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     app.include_router(system.router)
     app.include_router(settings.router)
     app.include_router(library.router)

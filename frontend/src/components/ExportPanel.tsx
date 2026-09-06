@@ -209,6 +209,31 @@ export function ExportPanel({
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4">
+        {!streamCopy && !isAudio && (
+          <Section title="Разрешение">
+            <Segmented
+              columns={3}
+              value={String(video.max_height)}
+              onChange={(value) => setVideo({ ...video, max_height: Number(value) })}
+              options={[
+                { value: '0', label: 'Оригинал', title: 'Оставить разрешение исходника' },
+                { value: '2160', label: '4K' },
+                { value: '1440', label: '1440p' },
+                { value: '1080', label: '1080p' },
+                { value: '720', label: '720p' },
+                { value: '480', label: '480p' },
+              ]}
+            />
+            <p className="text-[11px] leading-snug text-ink-faint">
+              {sourceHeight
+                ? outputHeight && outputHeight < sourceHeight
+                  ? `Исходник ${sourceHeight}p уменьшится до ${outputHeight}p — это сильнее всего режет вес.`
+                  : `Исходник ${sourceHeight}p — увеличивать его программа не станет, останется как есть.`
+                : 'Мелкое видео растянуто вверх не будет — только уменьшение.'}
+            </p>
+          </Section>
+        )}
+
         <Section title="Насколько сильно жать">
           <div className="grid gap-1.5">
             {kindPresets.map((preset) => (
@@ -234,30 +259,6 @@ export function ExportPanel({
           </div>
         </Section>
 
-        {!streamCopy && !isAudio && (
-          <Section title="Разрешение">
-            <Segmented
-              columns={3}
-              value={String(video.max_height)}
-              onChange={(value) => setVideo({ ...video, max_height: Number(value) })}
-              options={[
-                { value: '0', label: 'Оригинал', title: 'Оставить разрешение исходника' },
-                { value: '2160', label: '4K' },
-                { value: '1440', label: '1440p' },
-                { value: '1080', label: '1080p' },
-                { value: '720', label: '720p' },
-                { value: '480', label: '480p' },
-              ]}
-            />
-            <p className="text-[11px] leading-snug text-ink-faint">
-              {sourceHeight
-                ? outputHeight && outputHeight < sourceHeight
-                  ? `Исходник ${sourceHeight}p уменьшится до ${outputHeight}p — это сильнее всего режет вес.`
-                  : `Исходник ${sourceHeight}p — увеличивать его программа не станет, останется как есть.`
-                : 'Мелкое видео растянуто вверх не будет — только уменьшение.'}
-            </p>
-          </Section>
-        )}
 
         {!streamCopy && !isAudio && status?.gpuAvailable && (
           <Section title="Чем кодировать">
