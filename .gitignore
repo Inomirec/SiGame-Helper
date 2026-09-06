@@ -1,0 +1,24 @@
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- Node ---
+node_modules/
+
+# --- Сборка ---
+build/
+dist/
+*.spec.bak
+
+# --- Локальные данные ---
+data/
+workspace-test/
+bin/
+*.log
+
+# Собранный фронтенд НЕ игнорируем: благодаря ему приложение запускается
+# на чужом компьютере без Node.js и npm.
+# backend/app/static/
+.sgh-tools-ok

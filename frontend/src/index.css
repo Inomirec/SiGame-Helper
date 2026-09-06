@@ -1,0 +1,174 @@
+@import 'tailwindcss';
+
+/* Тёмная тема приложения. Цвета вынесены в токены, чтобы правки палитры
+   не превращались в поиск по всему проекту. */
+@theme {
+  --color-base: #0b0d12;
+  --color-surface: #12151c;
+  --color-surface-2: #171b24;
+  --color-surface-3: #1e2430;
+  --color-line: #242b3a;
+  --color-line-soft: #1b212c;
+  --color-ink: #e7eaf1;
+  --color-ink-dim: #a2abbd;
+  --color-ink-faint: #6f7891;
+  --color-accent: #7c5cff;
+  --color-accent-soft: #9d85ff;
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-danger: #f87171;
+
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-base);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-surface-3);
+    background-clip: content-box;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Ползунки диапазонов оформляем вручную: системные в тёмной теме выглядят чужеродно. */
+  input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type='range']::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--color-surface-3);
+  }
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    margin-top: -5px;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    border: 2px solid var(--color-base);
+    transition: transform 0.12s ease;
+  }
+  input[type='range']:hover::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
+  input[type='range']:disabled::-webkit-slider-thumb {
+    background: var(--color-ink-faint);
+  }
+}
+
+@layer components {
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line-soft);
+    border-radius: 14px;
+  }
+
+  .field {
+    width: 100%;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-line);
+    border-radius: 9px;
+    padding: 7px 10px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .field:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 22%, transparent);
+  }
+  .field::placeholder {
+    color: var(--color-ink-faint);
+  }
+
+  .label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+    margin-bottom: 6px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 7px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--color-surface-3);
+    color: var(--color-ink-dim);
+  }
+}
+
+/* Плавное появление панелей и модалок. */
+@keyframes sgh-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-in-up {
+  animation: sgh-fade-up 0.16s ease-out both;
+}
+
+@keyframes sgh-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-pulse-soft {
+  animation: sgh-pulse 1.6s ease-in-out infinite;
+}
