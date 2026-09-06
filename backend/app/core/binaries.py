@@ -334,4 +334,25 @@ def subprocess_env() -> dict[str, str]:
     extra = [str(folder) for folder in _portable_bin_dirs() if folder.exists()]
     if extra:
         env["PATH"] = os.pathsep.join([*extra, env.get("PATH", "")])
+
+    # Когда прокси в настройках выключен, системный прокси из переменных
+    # окружения увёл бы трафик мимо обхода блокировок (Zapret и подобных),
+    # который работает на уровне пакетов. Убираем их для дочерних процессов.
+    if not _proxy_configured():
+        for name in (
+            "http_proxy", "https_proxy", "all_proxy",
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+        ):
+            env.pop(name, None)
     return env
+
+
+def _proxy_configured() -> bool:
+    """True, когда пользователь сам включил прокси в настройках."""
+    try:
+        from . import config
+
+        settings = config.load().download
+        return bool(settings.proxy_enabled and settings.proxy)
+    except Exception:
+        return False

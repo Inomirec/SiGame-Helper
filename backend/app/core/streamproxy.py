@@ -179,7 +179,7 @@ async def resolve(url: str) -> dict[str, Any]:
     return result
 
 
-from .certs import ssl_context as _ssl_context
+from .certs import ipv4_opener
 
 
 def open_upstream(stream: Stream, range_header: str | None) -> tuple[Any, dict[str, str], int]:
@@ -195,7 +195,7 @@ def open_upstream(stream: Stream, range_header: str | None) -> tuple[Any, dict[s
 
     request = urllib.request.Request(stream.url, headers=headers)
     try:
-        response = urllib.request.urlopen(request, timeout=30, context=_ssl_context())
+        response = ipv4_opener().open(request, timeout=30)
     except urllib.error.HTTPError as exc:
         # 416 и подобное осмысленно передать клиенту как есть.
         return None, dict(exc.headers or {}), exc.code

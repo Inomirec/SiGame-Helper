@@ -85,6 +85,17 @@ def _common_args(url: str | None = None) -> list[str]:
     args: list[str] = []
     if settings.proxy_enabled and settings.proxy:
         args += ["--proxy", settings.proxy]
+    else:
+        # Без прокси идём строго напрямую и только по IPv4.
+        #
+        # Обходы блокировок вроде Zapret и GoodbyeDPI перехватывают трафик
+        # на уровне пакетов и умеют только IPv4. Если googlevideo.com
+        # отвечает по IPv6, обход к нему не применяется: страница YouTube
+        # открывается, а сам видеофайл виснет на «Read timed out».
+        #
+        # Пустой --proxy заставляет yt-dlp игнорировать системный прокси,
+        # который иначе может увести трафик мимо обхода.
+        args += ["--proxy", "", "--force-ipv4"]
     if settings.cookies_from_browser:
         args += ["--cookies-from-browser", settings.cookies_from_browser]
     if url:
@@ -248,6 +259,38 @@ async def run_ytdlp(
         tail = "\n".join(errors[-4:]) or f"yt-dlp завершился с кодом {code}"
         raise RuntimeError(tail)
     return files
+
+
+def explain_failure(text: str) -> str:
+    """Переводит типовые ошибки загрузчиков на человеческий язык.
+
+    Пользователю без разбора в сетях строка вида «HTTPSConnectionPool(...):
+    Read timed out» ничего не говорит и выглядит как поломка программы.
+    Чаще всего это провайдер: сам сайт отвечает, а сервер с видеофайлами
+    недоступен.
+    """
+    low = text.lower()
+
+    blocked_host = any(
+        host in low for host in ("googlevideo.com", "ytimg.com", "youtube.com")
+    )
+    timed_out = "read timed out" in low or "timed out" in low or "connection reset" in low
+    if blocked_host and timed_out:
+        return (
+            "YouTube не отдаёт сам видеофайл: сайт отвечает, а сервер с видео — нет.\n"
+            "Почти всегда это блокировка у провайдера. Помогает включить обход "
+            "блокировок или прописать прокси в настройках программы.\n\n"
+            + text
+        )
+
+    if "unsupported url" in low and "gallery-dl" in low:
+        return (
+            "Это ссылка на видео, а не на пост с картинками.\n"
+            "Выберите режим «Видео» вместо «Картинки» и попробуйте снова.\n\n"
+            + text
+        )
+
+    return text
 
 
 def _handle_progress(ctx: JobContext, payload: str) -> None:
