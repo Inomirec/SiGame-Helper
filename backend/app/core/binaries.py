@@ -39,10 +39,16 @@ class BinaryInfo:
 
 
 def _venv_scripts_dir() -> Path | None:
-    """Папка Scripts/bin активного venv."""
+    """Папка со скриптами текущего интерпретатора.
+
+    В виртуальном окружении ``python.exe`` лежит прямо в ``Scripts``, а во
+    встроенном Python из папки ``runtime`` — на уровень выше неё. Проверяем
+    оба варианта, иначе на портативной сборке yt-dlp не находится.
+    """
     base = Path(sys.executable).parent
-    if (base / f"yt-dlp{_EXE}").exists() or (base / "yt-dlp").exists():
-        return base
+    for candidate in (base, base / "Scripts", base / "bin"):
+        if (candidate / f"yt-dlp{_EXE}").exists() or (candidate / "yt-dlp").exists():
+            return candidate
     return None
 
 
