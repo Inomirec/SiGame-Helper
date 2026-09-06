@@ -61,8 +61,19 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'не удалось установить pip' }
         Remove-Item $getpip -Force
 
+        # Часть библиотек выложена без готовых «колёс» (например proxy-tools,
+        # который тянет за собой pywebview) и собирается из исходников прямо
+        # на месте. Для сборки нужны setuptools и wheel, а во встроенной
+        # сборке Python их нет — ставим сами.
+        & (Join-Path $runtime 'python.exe') -m pip install --no-warn-script-location -q setuptools wheel
+        if ($LASTEXITCODE -ne 0) { throw 'не удалось установить setuptools' }
+
+        # --no-build-isolation обязателен: встроенный Python из-за файла ._pth
+        # работает в изолированном режиме и не видит PYTHONPATH, через который
+        # pip подсовывает setuptools во временное окружение сборки. Без этого
+        # флага установка падает на «Cannot import setuptools.build_meta».
         Step '[4/4] Ставлю библиотеки и загрузчики (это самый долгий шаг)...'
-        & (Join-Path $runtime 'python.exe') -m pip install --no-warn-script-location -q -r (Join-Path $root 'backend\requirements.txt')
+        & (Join-Path $runtime 'python.exe') -m pip install --no-warn-script-location --no-build-isolation -q -r (Join-Path $root 'backend\requirements.txt')
         if ($LASTEXITCODE -ne 0) { throw 'не удалось установить библиотеки' }
 
         New-Item -ItemType File -Path $marker -Force | Out-Null
