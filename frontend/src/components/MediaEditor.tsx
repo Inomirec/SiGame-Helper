@@ -105,6 +105,14 @@ export function MediaEditor({
     [trim.in, trim.out, onTrimChange],
   )
 
+  // ensureTrim пересоздаётся при каждом изменении меток, и если держать его
+  // в зависимостях эффекта ниже, тот срабатывает на любое движение границы
+  // и сбрасывает время на ноль — игла прыгает в начало прямо во время
+  // разметки. Держим функцию в ссылке: эффект должен реагировать только
+  // на смену файла.
+  const ensureTrimRef = useRef(ensureTrim)
+  ensureTrimRef.current = ensureTrim
+
   // При смене файла сбрасываем состояние плеера, но не трогаем метки:
   // ими управляет родитель, который сам обнуляет их при выборе другого файла.
   useEffect(() => {
@@ -113,8 +121,8 @@ export function MediaEditor({
     setError(null)
     const total = file.media?.duration ?? 0
     setDuration(total)
-    ensureTrim(total)
-  }, [file.path, file.media?.duration, ensureTrim])
+    ensureTrimRef.current(total)
+  }, [file.path, file.media?.duration])
 
   // Осциллограмму считает бэкенд и кэширует на диске: во второй раз она
   // появляется мгновенно. Пока считается — на дорожке видна заглушка.

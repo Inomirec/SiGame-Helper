@@ -123,6 +123,28 @@ def _common_args(url: str | None = None) -> list[str]:
     return args
 
 
+def _mark(seconds: float | None, fallback: str) -> str:
+    """Время для имени файла: 95.5 -> «1-35»."""
+    if seconds is None:
+        return fallback
+    total = int(round(seconds))
+    return f"{total // 60}-{total % 60:02d}"
+
+
+def section_template(template: str, start: float | None, end: float | None) -> str:
+    """Дописывает в шаблон имени границы отрезка.
+
+    Без этого два куска одного ролика метят в один и тот же файл: yt-dlp
+    видит, что он уже скачан, и молча ничего не делает. Человек при этом
+    уверен, что качает второй фрагмент.
+    """
+    mark = f" [{_mark(start, '0-00')}..{_mark(end, 'конец')}]"
+    tail = ".%(ext)s"
+    if template.endswith(tail):
+        return template[: -len(tail)] + mark + tail
+    return template + mark
+
+
 def build_ytdlp_args(
     url: str,
     output_dir: Path,
@@ -160,7 +182,11 @@ def build_ytdlp_args(
         "--http-chunk-size", "10M",
         "--concurrent-fragments", "4",
         "-P", str(output_dir),
-        "-o", settings.filename_template,
+        "-o", (
+            section_template(settings.filename_template, *section)
+            if section
+            else settings.filename_template
+        ),
         # Итоговые пути пишем в отдельный файл, чтобы не мешать их с прогрессом.
         "--print-to-file", "after_move:filepath", str(print_file),
         "--no-simulate",

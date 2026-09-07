@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Maximize, ZoomIn, ZoomOut } from 'lucide-react'
+import { Magnet, Maximize, ZoomIn, ZoomOut } from 'lucide-react'
 import { timecode } from '../lib/format'
 import type { FilmstripInfo } from '../lib/types'
 
@@ -18,6 +18,10 @@ export interface Fades {
   video: { in: number; out: number }
   audio: { in: number; out: number }
 }
+
+/** Радиус прилипания и радиус захвата метки, в пикселях. */
+const SNAP_PIXELS = 10
+const GRAB_PIXELS = 14
 
 export const emptyFades: Fades = { video: { in: 0, out: 0 }, audio: { in: 0, out: 0 } }
 
@@ -95,6 +99,41 @@ export function Timeline({
   const trimSpan = Math.max(to - from, 0.01)
   const activeFades = fades ?? emptyFades
 
+  // Прилипание меток к игле. Человек ставит иглу на нужный кадр и тянет
+  // границу к ней — попасть точно мышью почти невозможно, поэтому у самой
+  // иглы граница защёлкивается. Кому мешает — выключает магнит.
+  const [snap, setSnap] = useState(
+    () => localStorage.getItem('sgh.snap') !== 'off',
+  )
+  useEffect(() => {
+    localStorage.setItem('sgh.snap', snap ? 'on' : 'off')
+  }, [snap])
+
+  /** Сколько секунд «весит» один пиксель дорожки. */
+  const secondsPerPixel = useCallback(() => {
+    const track = trackRef.current
+    if (!track) return 0
+    const rect = track.getBoundingClientRect()
+    return rect.width ? span / rect.width : 0
+  }, [span])
+
+  // Положение иглы держим в ссылке, а не только в замыкании: обработчик
+  // перетаскивания живёт на window и может остаться с тем значением, какое
+  // было при его создании. Ссылка всегда отдаёт свежее.
+  const currentTimeRef = useRef(currentTime)
+  currentTimeRef.current = currentTime
+
+  /** Притягивает время к игле, если мышь подошла к ней вплотную. */
+  const withSnap = useCallback(
+    (time: number) => {
+      if (!snap) return time
+      const needle = currentTimeRef.current
+      const threshold = secondsPerPixel() * SNAP_PIXELS
+      return Math.abs(time - needle) <= threshold ? needle : time
+    },
+    [snap, secondsPerPixel],
+  )
+
   const timeAt = useCallback(
     (clientX: number) => {
       const track = trackRef.current
@@ -162,10 +201,10 @@ export function Timeline({
       } else if (mode.kind === 'in') {
         // Точка In не должна перепрыгнуть за Out — оставляем зазор в кадр.
         const limit = outPoint !== null ? Math.max(outPoint - 0.04, 0) : safeDuration
-        onChangeIn(Math.min(time, limit))
+        onChangeIn(Math.min(withSnap(time), limit))
       } else if (mode.kind === 'out') {
         const limit = inPoint !== null ? inPoint + 0.04 : 0
-        onChangeOut(Math.max(time, limit))
+        onChangeOut(Math.max(withSnap(time), limit))
       } else if (mode.kind === 'fade' && onFadesChange) {
         const raw = mode.side === 'in' ? time - from : to - time
         const value = clamp(raw, 0, trimSpan * MAX_FADE_RATIO)
@@ -180,7 +219,7 @@ export function Timeline({
     },
     [
       inPoint, outPoint, onChangeIn, onChangeOut, onSeek, safeDuration, span,
-      from, to, trimSpan, activeFades, onFadesChange, timeAt,
+      from, to, trimSpan, activeFades, onFadesChange, timeAt, withSnap,
     ],
   )
 
@@ -246,6 +285,20 @@ export function Timeline({
           )}
           <button
             type="button"
+            onClick={() => setSnap(!snap)}
+            title={
+              snap
+                ? 'Магнит включён: границы прилипают к зелёной игле'
+                : 'Магнит выключен: границы ставятся точно по мыши'
+            }
+            className={`mr-0.5 rounded p-1 transition-colors hover:bg-surface-3 ${
+              snap ? 'text-accent-soft' : 'hover:text-ink'
+            }`}
+          >
+            <Magnet size={13} />
+          </button>
+          <button
+            type="button"
             onClick={() => applyZoom(zoom / 1.6)}
             disabled={!zoomed}
             title="Отдалить (колесо мыши вниз)"
@@ -282,8 +335,21 @@ export function Timeline({
         className="relative cursor-pointer overflow-hidden rounded-lg bg-surface-2 ring-1 ring-line-soft"
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
+          // Промах по узкой метке раньше уводил иглу в точку клика, и
+          // размеченный кадр терялся. Рядом с границей считаем, что тянут
+          // именно её, — игла остаётся там, где её поставили.
+          const time = timeAt(event.clientX)
+          const near = secondsPerPixel() * GRAB_PIXELS
+          if (inPoint !== null && Math.abs(time - inPoint) <= near) {
+            setDrag({ kind: 'in' })
+            return
+          }
+          if (outPoint !== null && Math.abs(time - outPoint) <= near) {
+            setDrag({ kind: 'out' })
+            return
+          }
           setDrag({ kind: 'playhead' })
-          onSeek(timeAt(event.clientX))
+          onSeek(time)
         }}
         onPointerMove={(event) => setHover(timeAt(event.clientX))}
         onPointerLeave={() => setHover(null)}

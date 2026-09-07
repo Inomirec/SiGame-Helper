@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../lib/api'
-import { fileName, humanSize, savings } from '../lib/format'
+import { fileName, humanSize, savings, shrinkRatio } from '../lib/format'
 import type { Job } from '../lib/types'
 import { useStore } from '../store'
 import { CompareModal } from './CompareModal'
@@ -194,7 +194,12 @@ function JobRow({
         {compression && job.status === 'done' && (
           <span
             className="chip shrink-0 bg-ok/15 text-ok"
-            title={`${humanSize(job.meta.sizeBefore)} → ${humanSize(job.meta.sizeAfter)}`}
+            title={[
+              `${humanSize(job.meta.sizeBefore)} → ${humanSize(job.meta.sizeAfter)}`,
+              shrinkRatio(job.meta.sizeBefore, job.meta.sizeAfter),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           >
             {compression}
           </span>

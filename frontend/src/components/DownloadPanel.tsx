@@ -147,7 +147,9 @@ export function DownloadPanel() {
         'ok',
       )
       setQueueOpen(true)
-      setRows([emptyRow()])
+      // Ссылки намеренно оставляем на месте: из одного ролика часто нужно
+      // вырезать несколько кусков, и вбивать адрес заново каждый раз —
+      // лишняя работа. Ненужную строку можно убрать крестиком.
     } catch (error) {
       toast((error as Error).message, 'error')
     } finally {

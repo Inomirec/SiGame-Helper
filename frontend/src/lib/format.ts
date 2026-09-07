@@ -48,6 +48,19 @@ export function savings(before?: number, after?: number): string | null {
   return `−${Math.min(Math.round(delta * 100), 99)}%`
 }
 
+/**
+ * Во сколько раз файл стал легче: «в 6.7 раза».
+ *
+ * Процент отвечает на вопрос «сколько веса ушло», а кратность — «насколько
+ * меньше стал файл». Второе понятнее, когда прикидываешь, сколько таких
+ * влезет в пак, поэтому показываем оба.
+ */
+export function shrinkRatio(before?: number, after?: number): string | null {
+  if (!before || !after || after >= before) return null
+  const times = before / after
+  return `в ${times < 10 ? times.toFixed(1) : Math.round(times)} раза меньше`
+}
+
 export function fileStem(path: string): string {
   const name = path.split(/[\\/]/).pop() ?? path
   const dot = name.lastIndexOf('.')
