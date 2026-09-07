@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Crop, Eye, Square, Trash2, Undo2 } from 'lucide-react'
+import { Brush, Crop, Eraser, Eye, Square, Trash2, Undo2 } from 'lucide-react'
 import { mediaUrl } from '../lib/api'
 import { humanSize } from '../lib/format'
-import type { FileInfo, Rect } from '../lib/types'
+import type { FileInfo, Rect, Stroke } from '../lib/types'
 import { RectCanvas, type Selection, type Tool } from './RectCanvas'
 import { Segmented } from './ui'
 
 export interface ImageEdit {
   crop: Rect | null
   boxes: Rect[]
+  /** Мазки кистью и ластиком — для надписей, которые не влезают в прямоугольник. */
+  strokes: Stroke[]
 }
 
-export const emptyImageEdit: ImageEdit = { crop: null, boxes: [] }
+export const emptyImageEdit: ImageEdit = { crop: null, boxes: [], strokes: [] }
 
 /**
  * Просмотр и правка изображения.
@@ -31,6 +33,7 @@ export function ImageEditor({
   const [tool, setTool] = useState<Tool>('box')
   const [selection, setSelection] = useState<Selection>(null)
   const [history, setHistory] = useState<ImageEdit[]>([])
+  const [brushSize, setBrushSize] = useState(40)
 
   const media = file.media
   const natural = { width: media?.width ?? 0, height: media?.height ?? 0 }
@@ -124,8 +127,12 @@ export function ImageEditor({
               tool={tool}
               selection={selection}
               onSelect={setSelection}
+              strokes={edit.strokes}
+              brushSize={brushSize}
+              paintColor="#000000"
               onBoxesChange={(boxes) => onEditChange({ ...edit, boxes })}
               onCropChange={(crop) => onEditChange({ ...edit, crop })}
+              onStrokesChange={(strokes) => onEditChange({ ...edit, strokes })}
               onCommit={commit}
             />
           )}
@@ -135,18 +142,37 @@ export function ImageEditor({
       {/* Инструменты */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-surface px-3 py-2 text-[11px] text-ink-faint ring-1 ring-line-soft">
         <Segmented<Tool>
-          className="w-[290px]"
+          className="w-[420px]"
           value={tool}
           onChange={(value) => {
             setTool(value)
             setSelection(null)
           }}
           options={[
-            { value: 'box', label: 'Закрасить', title: 'Спрятать бренд, надпись или спойлер' },
+            { value: 'box', label: 'Закрасить', title: 'Прямоугольник: бренд, надпись, спойлер' },
+            { value: 'brush', label: 'Кисть', title: 'Закрасить от руки — для надписей дугой и наискось' },
+            { value: 'eraser', label: 'Ластик', title: 'Стереть лишнее, что закрасили кистью' },
             { value: 'crop', label: 'Обрезать', title: 'Отрезать пустые поля и чёрные края' },
             { value: 'view', label: 'Просмотр', title: 'Ничего не менять, просто смотреть' },
           ]}
         />
+
+        {(tool === 'brush' || tool === 'eraser') && (
+          <label className="flex items-center gap-2">
+            {tool === 'brush' ? <Brush size={12} /> : <Eraser size={12} />}
+            Толщина
+            <input
+              type="range"
+              min={4}
+              max={200}
+              step={2}
+              value={brushSize}
+              onChange={(event) => setBrushSize(Number(event.target.value))}
+              className="w-24"
+            />
+            <span className="w-8 font-mono tabular-nums text-ink">{brushSize}</span>
+          </label>
+        )}
 
         <button
           type="button"

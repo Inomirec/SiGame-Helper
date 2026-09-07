@@ -122,6 +122,14 @@ export interface AudioOptions {
   mono: boolean
 }
 
+/** Мазок кистью или ластиком в координатах оригинала. */
+export interface Stroke {
+  points: { x: number; y: number }[]
+  size: number
+  /** true — стирает ранее нарисованное, а не закрашивает. */
+  erase: boolean
+}
+
 export interface Rect {
   x: number
   y: number
@@ -140,6 +148,8 @@ export interface ImageOptions {
   /** Закрашиваемые области в пикселях оригинала. */
   boxes: Rect[]
   box_color: string
+  /** Нарисованное кистью: прозрачный PNG размером с оригинал, в base64. */
+  paint_png?: string | null
   /** Кадрирование в пикселях оригинала. */
   crop: Rect | null
 }

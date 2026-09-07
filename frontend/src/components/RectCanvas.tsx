@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Rect } from '../lib/types'
+import type { Rect, Stroke } from '../lib/types'
+import { drawStrokes } from '../lib/paint'
 
 /** Точки, за которые можно тянуть прямоугольник. */
 export type Grip = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'move'
 
 export type Selection = { type: 'box'; index: number } | { type: 'crop' } | null
 
-export type Tool = 'view' | 'crop' | 'box'
+export type Tool = 'view' | 'crop' | 'box' | 'brush' | 'eraser'
 
 interface DragState {
   grip: Grip
@@ -90,26 +91,39 @@ export function RectCanvas({
   height,
   boxes,
   crop,
+  strokes,
+  brushSize,
+  paintColor,
   tool,
   selection,
   onSelect,
   onBoxesChange,
   onCropChange,
+  onStrokesChange,
   onCommit,
 }: {
   width: number
   height: number
   boxes: Rect[]
   crop: Rect | null
+  strokes: Stroke[]
+  brushSize: number
+  paintColor: string
   tool: Tool
   selection: Selection
   onSelect: (selection: Selection) => void
   onBoxesChange: (boxes: Rect[]) => void
   onCropChange: (crop: Rect | null) => void
+  onStrokesChange: (strokes: Stroke[]) => void
   /** Вызывается перед каждым изменением — родитель кладёт состояние в историю. */
   onCommit: () => void
 }) {
   const shellRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Текущий мазок держим в ref: обработчики на window иначе увидят снимок
+  // из прошлого рендера и потеряют половину точек.
+  const strokeRef = useRef<Stroke | null>(null)
+  const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
   // Состояние перетаскивания держим в ref: обработчики на window иначе видят
   // снимок из прошлого рендера и считают размеры по устаревшим данным.
   const dragRef = useRef<DragState | null>(null)
@@ -129,6 +143,19 @@ export function RectCanvas({
     },
     [width, height],
   )
+
+  // Перерисовываем холст на каждое изменение мазков: их немного, а держать
+  // отдельный слой «уже нарисованного» — лишняя сложность на ровном месте.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !width || !height) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, width, height)
+    drawStrokes(ctx, liveStroke ? [...strokes, liveStroke] : strokes, paintColor)
+  }, [strokes, liveStroke, width, height, paintColor])
+
+  const painting = tool === 'brush' || tool === 'eraser'
 
   const asStyle = (rect: Rect) => ({
     left: `${(rect.x / width) * 100}%`,
@@ -156,8 +183,15 @@ export function RectCanvas({
     if (!dragging) return
 
     const onMove = (event: PointerEvent) => {
-      const drag = dragRef.current
       const point = toImage(event.clientX, event.clientY)
+      const stroke = strokeRef.current
+      if (stroke && point) {
+        stroke.points.push(point)
+        setLiveStroke({ ...stroke, points: [...stroke.points] })
+        return
+      }
+
+      const drag = dragRef.current
       if (!drag || !point) return
 
       if (drag.creating) {
@@ -193,6 +227,15 @@ export function RectCanvas({
     }
 
     const onUp = () => {
+      const stroke = strokeRef.current
+      if (stroke) {
+        strokeRef.current = null
+        setLiveStroke(null)
+        setDragging(false)
+        if (stroke.points.length) onStrokesChange([...strokes, stroke])
+        return
+      }
+
       const drag = dragRef.current
       const pending = draftRef.current
       if (drag?.creating && pending && pending.width > MIN_SIZE && pending.height > MIN_SIZE) {
@@ -224,7 +267,10 @@ export function RectCanvas({
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [dragging, boxes, tool, width, height, toImage, onBoxesChange, onCropChange, onSelect])
+  }, [
+    dragging, boxes, strokes, tool, width, height, toImage,
+    onBoxesChange, onCropChange, onStrokesChange, onSelect,
+  ])
 
   const isSelected = (target: Selection) =>
     Boolean(
@@ -240,9 +286,25 @@ export function RectCanvas({
       className={`absolute inset-0 ${tool === 'view' ? '' : 'cursor-crosshair'}`}
       onPointerDown={(event) => {
         if (tool === 'view') return
-        // Клик по пустому месту снимает выделение и начинает новый прямоугольник.
         onSelect(null)
         onCommit()
+
+        if (painting) {
+          const point = toImage(event.clientX, event.clientY)
+          if (!point) return
+          event.currentTarget.setPointerCapture(event.pointerId)
+          const stroke: Stroke = {
+            points: [point],
+            size: brushSize,
+            erase: tool === 'eraser',
+          }
+          strokeRef.current = stroke
+          setLiveStroke(stroke)
+          setDragging(true)
+          return
+        }
+
+        // Клик по пустому месту снимает выделение и начинает новый прямоугольник.
         begin(event, {
           grip: 'se',
           target: null,
@@ -251,6 +313,13 @@ export function RectCanvas({
         })
       }}
     >
+      <canvas
+        ref={canvasRef}
+        width={width}
+        height={height}
+        className="pointer-events-none absolute inset-0 h-full w-full"
+      />
+
       {/* Рамка обрезки: всё вне неё притемнено */}
       {crop && (
         <div

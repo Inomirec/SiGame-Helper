@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -244,6 +245,36 @@ async def alpha_is_used(source: Path) -> bool:
     return True
 
 
+async def _apply_paint(source: Path, data: str, workdir: Path) -> Path:
+    """Накладывает нарисованное кистью поверх картинки отдельным проходом.
+
+    Мазки приходят готовым прозрачным PNG размером с оригинал: прямоугольником
+    не закрыть надпись, идущую дугой, а описывать каждый мазок фильтрами
+    ffmpeg — бессмысленно сложно.
+
+    Наложение делаем до всего остального, отдельным быстрым шагом в PNG без
+    потерь. Так координаты закраски и обрезки остаются в системе оригинала,
+    а собранная ниже команда сжатия не усложняется вторым входом.
+    """
+    workdir.mkdir(parents=True, exist_ok=True)
+    layer = workdir / "paint.png"
+    payload = data.split(",", 1)[-1] if data.startswith("data:") else data
+    layer.write_bytes(base64.b64decode(payload))
+
+    painted = workdir / "painted.png"
+    await _run([
+        binaries.ffmpeg(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+        "-i", str(source),
+        "-i", str(layer),
+        "-filter_complex", "[0:v][1:v]overlay=0:0:format=auto",
+        "-pix_fmt", "rgba",
+        "-frames:v", "1",
+        str(painted),
+    ])
+    layer.unlink(missing_ok=True)
+    return painted
+
+
 async def compress(
     source: Path,
     output: Path,
@@ -251,9 +282,14 @@ async def compress(
     progress: ProgressCb | None = None,
 ) -> ImageResult:
     """Сжимает изображение, при необходимости подбирая качество под лимит веса."""
-    info = await probe(source)
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    paint_dir: Path | None = None
+    if options.paint_png:
+        paint_dir = output.parent / f".{output.stem}.paint"
+        source = await _apply_paint(source, options.paint_png, paint_dir)
+
+    info = await probe(source)
     alpha_used = await alpha_is_used(source) if info and info.has_alpha else False
 
     async def report(value: float, message: str) -> None:
@@ -265,8 +301,12 @@ async def compress(
     # PNG без потерь — подбирать нечего, делаем один проход.
     if options.target_kb is None or options.format == "png":
         await report(0.1, "Кодирование")
-        await _run(build_args(source, output, options, info, options.quality, alpha_used))
-        size = output.stat().st_size
+        try:
+            await _run(build_args(source, output, options, info, options.quality, alpha_used))
+            size = output.stat().st_size
+        finally:
+            if paint_dir:
+                shutil.rmtree(paint_dir, ignore_errors=True)
         await report(1.0, "Готово")
         return _result(output, size, info, options, options.quality, 1, True)
 
@@ -318,6 +358,8 @@ async def compress(
         shutil.move(str(best_path), str(output))
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+        if paint_dir:
+            shutil.rmtree(paint_dir, ignore_errors=True)
 
     await report(1.0, "Готово")
     return _result(

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Play } from 'lucide-react'
 import { api } from '../lib/api'
 import { plural } from '../lib/format'
+import { strokesToPng } from '../lib/paint'
 import type { FileInfo, ImageOptions, Preset } from '../lib/types'
 import { useStore } from '../store'
 import type { ImageEdit } from './ImageEditorTop'
@@ -55,7 +56,7 @@ export function ImagePanel({ file, edit }: { file: FileInfo; edit: ImageEdit }) 
     } as ImageOptions))
   }
 
-  const hasEdits = Boolean(edit.crop) || edit.boxes.length > 0
+  const hasEdits = Boolean(edit.crop) || edit.boxes.length > 0 || edit.strokes.length > 0
 
   const buildRequest = (source: string, withEdits: boolean) => ({
     source,
@@ -65,6 +66,11 @@ export function ImagePanel({ file, edit }: { file: FileInfo; edit: ImageEdit }) 
       // Правки нарисованы для конкретной картинки — в пакет их не тащим.
       crop: withEdits ? edit.crop : null,
       boxes: withEdits ? edit.boxes : [],
+      // Мазки превращаем в прозрачный PNG размером с оригинал: описывать
+      // каждый из них фильтрами ffmpeg сложнее и хуже, чем наложить слой.
+      paint_png: withEdits
+        ? strokesToPng(edit.strokes, file.media?.width ?? 0, file.media?.height ?? 0, '#000000')
+        : null,
     },
     suffix,
     preset_label: imagePresets.find((preset) => preset.id === presetId)?.label,
