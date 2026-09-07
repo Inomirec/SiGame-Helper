@@ -131,6 +131,8 @@ export function JobQueue() {
           kind={compare.kind === 'image' ? 'image' : 'video'}
           sizeBefore={compare.meta?.sizeBefore}
           sizeAfter={compare.meta?.sizeAfter}
+          trimStart={compare.meta?.trimStart}
+          tempo={compare.meta?.tempo}
         />
       )}
     </div>

@@ -75,6 +75,7 @@ def build_args(
     options: ImageOptions,
     info: MediaInfo | None,
     quality: int,
+    alpha_used: bool | None = None,
 ) -> list[str]:
     """Команда ffmpeg для одной попытки кодирования."""
     fmt = options.format
@@ -108,16 +109,26 @@ def build_args(
 
     scale = ",".join(chain) if chain else None
 
-    keep_alpha = bool(info and info.has_alpha) and fmt in {"avif", "webp", "png"}
+    has_alpha = bool(info and info.has_alpha) if alpha_used is None else alpha_used
+    keep_alpha = has_alpha and fmt in {"avif", "webp", "png"}
 
     if fmt == "avif":
         if keep_alpha:
             # Муксер AVIF хранит прозрачность отдельным потоком, поэтому
             # альфу приходится выдёргивать фильтром и подавать вторым входом.
+            #
+            # setparams обязателен: без него ffmpeg помечает канал
+            # прозрачности «тождественной» цветовой матрицей, а с ней libaom
+            # требует полной цветности и отказывается кодировать —
+            # «Subsampling must be 0 with AOM_CICP_MC_IDENTITY».
             prefix = f"{scale}," if scale else ""
+            alpha = (
+                "alphaextract,format=gray,"
+                "setparams=colorspace=bt470bg:color_primaries=bt709:color_trc=bt709"
+            )
             args += [
                 "-filter_complex",
-                f"[0:v]{prefix}split=2[base][tmp];[tmp]alphaextract[alpha]",
+                f"[0:v]{prefix}split=2[base][tmp];[tmp]{alpha}[alpha]",
                 "-map", "[base]",
                 "-map", "[alpha]",
             ]
@@ -132,7 +143,13 @@ def build_args(
             "-b:v", "0",
             # cpu-used: 0 — медленно и максимально компактно, 8 — быстро.
             "-cpu-used", str(max(0, min(8, options.effort))),
-            "-pix_fmt", "yuv420p",
+            # Формат пикселей задаём каждому потоку отдельно: у картинки он
+            # обычный, а у прозрачности — одноплоскостной серый. Общий
+            # -pix_fmt превратил бы альфу в трёхплоскостную, и муксер AVIF
+            # отказывался писать файл.
+            # Формат пикселей задаём только картинке: у канала прозрачности
+            # он уже выставлен фильтром, и общий -pix_fmt его бы испортил.
+            *(["-pix_fmt:v:0", "yuv420p"] if keep_alpha else ["-pix_fmt", "yuv420p"]),
             "-frames:v", "1",
             "-f", "avif",
         ]
@@ -186,6 +203,47 @@ async def _run(args: list[str]) -> None:
         raise RuntimeError(err.decode("utf-8", "replace").strip()[:600] or "ffmpeg упал")
 
 
+async def alpha_is_used(source: Path) -> bool:
+    """Действительно ли картинка что-то скрывает прозрачностью.
+
+    Наличие альфа-канала ещё ничего не значит: у PNG из скриншотов и
+    экспортов он сплошь и рядом присутствует, но полностью непрозрачен.
+    Хранить его тогда незачем — файл выходит крупнее и сложнее, а для AVIF
+    это ещё и второй поток внутри, лишний повод чему-нибудь сломаться.
+
+    Смотрим минимум канала: 255 означает, что прозрачных точек нет вовсе.
+    """
+    args = [
+        binaries.require("ffmpeg"), "-hide_banner", "-nostdin", "-v", "error",
+        "-i", str(source),
+        # file=- обязателен: без него вывод фильтра идёт в журнал
+        # и глохнет на уровне логов "error", а проверка молча
+        # начинает всегда отвечать «прозрачность нужна».
+        "-vf", "alphaextract,signalstats,metadata=print:key=lavfi.signalstats.YMIN:file=-",
+        "-f", "null", "-",
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            creationflags=binaries.CREATE_NO_WINDOW,
+            env=binaries.subprocess_env(),
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except Exception:
+        # Не смогли проверить — считаем, что прозрачность нужна.
+        return True
+
+    for line in out.decode("utf-8", "replace").splitlines():
+        if "YMIN=" in line:
+            try:
+                return float(line.split("YMIN=")[1].strip()) < 255
+            except ValueError:
+                return True
+    return True
+
+
 async def compress(
     source: Path,
     output: Path,
@@ -196,6 +254,8 @@ async def compress(
     info = await probe(source)
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    alpha_used = await alpha_is_used(source) if info and info.has_alpha else False
+
     async def report(value: float, message: str) -> None:
         if progress:
             result = progress(value, message)
@@ -205,7 +265,7 @@ async def compress(
     # PNG без потерь — подбирать нечего, делаем один проход.
     if options.target_kb is None or options.format == "png":
         await report(0.1, "Кодирование")
-        await _run(build_args(source, output, options, info, options.quality))
+        await _run(build_args(source, output, options, info, options.quality, alpha_used))
         size = output.stat().st_size
         await report(1.0, "Готово")
         return _result(output, size, info, options, options.quality, 1, True)
@@ -230,7 +290,8 @@ async def compress(
                 f"Проход {step + 1}/{options.passes}: качество {quality}",
             )
             await _run(build_args(source, output=candidate, options=options,
-                                  info=info, quality=quality))
+                                  info=info, quality=quality,
+                                  alpha_used=alpha_used))
             size = candidate.stat().st_size
 
             if size <= target_bytes:
@@ -249,7 +310,7 @@ async def compress(
             attempts += 1
             await report(0.9, "Лимит недостижим, жмём по максимуму")
             candidate = workdir / f"final{EXTENSIONS[options.format]}"
-            await _run(build_args(source, candidate, options, info, 1))
+            await _run(build_args(source, candidate, options, info, 1, alpha_used))
             best_path, best_size, best_quality = candidate, candidate.stat().st_size, 1
 
         if output.exists():

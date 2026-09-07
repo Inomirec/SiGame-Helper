@@ -17,6 +17,8 @@ export function CompareModal({
   kind,
   sizeBefore,
   sizeAfter,
+  trimStart = 0,
+  tempo = 1,
   open,
   onClose,
 }: {
@@ -25,9 +27,19 @@ export function CompareModal({
   kind: 'image' | 'video'
   sizeBefore?: number
   sizeAfter?: number
+  /** С какой секунды исходника начинается результат. */
+  trimStart?: number
+  /** Во сколько раз результат быстрее исходника. */
+  tempo?: number
   open: boolean
   onClose: () => void
 }) {
+  // Результат обрезан и может идти быстрее, поэтому его секунда — это
+  // не секунда исходника. Ведущим делаем результат: именно его человек
+  // и пришёл оценивать, а исходник подтягиваем к нему по этой формуле.
+  const rate = tempo || 1
+  const toBefore = (value: number) => trimStart + value * rate
+
   const shellRef = useRef<HTMLDivElement>(null)
   const leftVideo = useRef<HTMLVideoElement>(null)
   const rightVideo = useRef<HTMLVideoElement>(null)
@@ -79,8 +91,11 @@ export function CompareModal({
     const left = leftVideo.current
     const right = rightVideo.current
     if (!left || !right) return
-    if (left.paused) {
-      right.currentTime = left.currentTime
+    if (right.paused) {
+      left.currentTime = toBefore(right.currentTime)
+      // Исходник должен идти быстрее ровно во столько, во сколько
+      // результат ускорен, иначе они разъедутся за первые же секунды.
+      left.playbackRate = rate
       void left.play()
       void right.play()
     } else {
@@ -93,8 +108,8 @@ export function CompareModal({
     const left = leftVideo.current
     const right = rightVideo.current
     if (!left || !right) return
-    left.currentTime = value
     right.currentTime = value
+    left.currentTime = toBefore(value)
     setTime(value)
   }
 
@@ -145,8 +160,19 @@ export function CompareModal({
                   // прямоугольник. Лёгкий сдвиг заставляет его декодировать
                   // первый кадр — иначе половина сравнения выглядит пустой.
                   const element = event.currentTarget
-                  element.currentTime = leftVideo.current?.currentTime || 0.04
+                  setDuration(element.duration || 0)
+                  element.currentTime = 0.04
                 }}
+                onTimeUpdate={(event) => {
+                  const value = event.currentTarget.currentTime
+                  setTime(value)
+                  const left = leftVideo.current
+                  if (left && Math.abs(left.currentTime - toBefore(value)) > 0.2) {
+                    left.currentTime = toBefore(value)
+                  }
+                }}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
               />
               <div
                 className="absolute inset-0 overflow-hidden"
@@ -157,25 +183,9 @@ export function CompareModal({
                   src={mediaUrl(before)}
                   className="block max-h-[58vh] w-full object-contain"
                   playsInline
-                  onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-                  onTimeUpdate={(event) => {
-                    setTime(event.currentTarget.currentTime)
-                    // Правое видео потихоньку уплывает — подтягиваем его назад.
-                    const right = rightVideo.current
-                    if (right && Math.abs(right.currentTime - event.currentTarget.currentTime) > 0.2) {
-                      right.currentTime = event.currentTarget.currentTime
-                    }
-                  }}
-                  onSeeked={(event) => {
-                    const right = rightVideo.current
-                    if (right) right.currentTime = event.currentTarget.currentTime
-                  }}
                   onLoadedData={(event) => {
-                    const right = rightVideo.current
-                    if (right) right.currentTime = event.currentTarget.currentTime || 0.04
+                    event.currentTarget.currentTime = toBefore(0.04)
                   }}
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
                 />
               </div>
             </>

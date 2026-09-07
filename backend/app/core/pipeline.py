@@ -123,7 +123,14 @@ def submit_export(request: ExportRequest) -> Job:
 
             args = encode.build_command(request, output, info, measured=measured)
             ctx.log("$ " + encode.to_display_string(args))
-            ctx.meta(command=encode.to_display_string(args))
+            # Смещение и скорость нужны окну «До и после»: результат обрезан
+            # и может идти быстрее, поэтому напрямую с исходником он
+            # не совпадает — без этих чисел половинки разъезжаются.
+            ctx.meta(
+                command=encode.to_display_string(args),
+                trimStart=request.trim.start or 0.0,
+                tempo=tempo or 1.0,
+            )
 
             await run_ffmpeg(
                 ctx, args,
@@ -300,18 +307,25 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
 
 # --- скачивание ---------------------------------------------------------
 
-def _download_dir(request: DownloadRequest) -> Path:
+def _download_dir(request: DownloadRequest) -> tuple[Path, bool]:
+    """Куда качать и раскладывать ли внутри по типам.
+
+    Если папку выбрал человек, кладём файлы ровно туда: он уже сказал, где
+    им место, и лишние подпапки внутри — сюрприз, а не помощь. Раскладку
+    оставляем только для папки ``_downloads``, которую программа заводит
+    сама: там иначе за месяц работы над паком копится одна куча.
+    """
     settings = config.load()
     if request.output_dir:
-        return Path(request.output_dir).expanduser()
+        return Path(request.output_dir).expanduser(), False
     if settings.download.directory:
-        return Path(settings.download.directory).expanduser()
-    return Path(settings.resolved_workspace()) / "_downloads"
+        return Path(settings.download.directory).expanduser(), False
+    return Path(settings.resolved_workspace()) / "_downloads", True
 
 
 def submit_download(request: DownloadRequest, item: DownloadItem) -> Job:
     """Ставит одну ссылку в очередь скачивания."""
-    base = _download_dir(request)
+    base, sort_inside = _download_dir(request)
     url = item.url
     section = (item.start, item.end) if item.has_section else None
 
@@ -321,7 +335,7 @@ def submit_download(request: DownloadRequest, item: DownloadItem) -> Job:
     if planned == "auto":
         planned = "images" if download.looks_like_gallery(url) else "video"
     kind = {"images": "image", "audio": "audio"}.get(planned, "video")
-    target = fsutil.sorted_dir(base, kind)
+    target = fsutil.sorted_dir(base, kind) if sort_inside else base
 
     async def runner(ctx: JobContext) -> None:
         mode = request.mode

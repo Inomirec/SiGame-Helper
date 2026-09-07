@@ -161,15 +161,12 @@ def sorted_dir(base: Path, kind: str) -> Path:
 def default_output_dir(source: Path, kind: str | None = None) -> Path:
     """Подпапка для результатов рядом с исходником.
 
-    Внутри неё файлы дополнительно раскладываются по типу — иначе через месяц
-    работы над паком в одной куче лежат сотни файлов, и найти нужный тяжело.
+    Раскладку по типу внутрь не добавляем: исходник уже лежит там, куда его
+    положила загрузка, и путь вида ``Видео/_processed/Видео`` не сообщает
+    ничего нового — только добавляет кликов по дороге к файлу.
     """
     folder = config.load().export.output_folder or "_processed"
-    base = source.parent / folder
-    # Если исходник уже лежит в папке-по-типу, второй раз её не создаём.
-    if kind and base.name != KIND_FOLDERS.get(kind, ""):
-        return sorted_dir(base, kind)
-    return base
+    return source.parent / folder
 
 
 def human_size(size: int) -> str:
