@@ -339,7 +339,7 @@ async def run_ytdlp(
 
     if code != 0 and not files:
         tail = "\n".join(errors[-4:]) or f"yt-dlp завершился с кодом {code}"
-        raise RuntimeError(tail)
+        raise RuntimeError(explain_failure(tail))
     return files
 
 
@@ -367,6 +367,18 @@ def explain_failure(text: str) -> str:
             "другую стратегию обхода: часть роликов проходит не при всякой.\n\n"
             "На другие сайты это не влияет: VK, Rutube и остальные качаются "
             "как обычно.\n\n"
+            + text
+        )
+
+    if "login" in low or "войдите" in low or "authentication" in low:
+        return (
+            "Сайт отдаёт этот пост только тем, кто вошёл в аккаунт.\n\n"
+            "Что делать:\n"
+            "  1. Откройте сайт в Firefox и войдите в свой аккаунт.\n"
+            "  2. В настройках программы включите «Брать куки из браузера» "
+            "→ Firefox.\n"
+            "  3. Повторите загрузку — программа возьмёт вход из браузера.\n\n"
+            "Так работают Instagram, закрытые и возрастные посты.\n\n"
             + text
         )
 
@@ -469,7 +481,11 @@ async def probe_gallery(url: str) -> list[dict[str, Any]]:
     out, err = await process.communicate()
     if process.returncode != 0 and not out:
         message = err.decode("utf-8", "replace").strip()
-        raise RuntimeError(message.splitlines()[-1] if message else "gallery-dl не смог открыть ссылку")
+        raise RuntimeError(
+            explain_failure(message.splitlines()[-1])
+            if message
+            else "gallery-dl не смог открыть ссылку"
+        )
 
     try:
         payload = json.loads(out.decode("utf-8", "replace") or "[]")
@@ -582,5 +598,5 @@ async def run_gallery_dl(
 
     if code != 0 and not files:
         tail = "\n".join(errors[-4:]) or f"gallery-dl завершился с кодом {code}"
-        raise RuntimeError(tail)
+        raise RuntimeError(explain_failure(tail))
     return files

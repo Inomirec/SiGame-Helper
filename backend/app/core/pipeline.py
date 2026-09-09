@@ -353,11 +353,18 @@ def submit_download(request: DownloadRequest, item: DownloadItem) -> Job:
                     raise
                 # В посте могло не быть картинок — пробуем как видео.
                 ctx.log(f"gallery-dl: {exc}. Пробую yt-dlp…")
-                files = await download.run_ytdlp(
-                    ctx, url, target,
-                    mode="video", max_height=request.max_height,
-                    audio_format=request.audio_format, section=section,
-                )
+                try:
+                    files = await download.run_ytdlp(
+                        ctx, url, target,
+                        mode="video", max_height=request.max_height,
+                        audio_format=request.audio_format, section=section,
+                    )
+                except RuntimeError:
+                    # Для таких ссылок главный загрузчик — gallery-dl, и
+                    # рассказывать надо про его беду. Иначе человек видит
+                    # «в посте нет видео» и ищет несуществующую проблему,
+                    # хотя на самом деле сайт просил войти в аккаунт.
+                    raise exc from None
         else:
             try:
                 files = await download.run_ytdlp(
