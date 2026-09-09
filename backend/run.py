@@ -150,8 +150,19 @@ def launch_window(url: str, port: int) -> bool:
     )
     # Дополнительное окно не нужно: всё живёт на одной странице.
     del window
+
+    # Своя папка профиля вместо временной. По умолчанию pywebview открывает
+    # окно «начисто»: каждый запуск заново спрашивает разрешение на доступ
+    # к буферу обмена и забывает мелочи вроде громкости плеера. Настройки
+    # программы тут ни при чём — они и так лежат отдельным файлом.
+    from app.paths import data_dir, ensure_dirs
+
+    ensure_dirs()
+    storage = data_dir() / "window"
+    storage.mkdir(parents=True, exist_ok=True)
+
     try:
-        webview.start(debug=False)
+        webview.start(debug=False, private_mode=False, storage_path=str(storage))
     except Exception:  # WebView2 может отсутствовать на голой системе
         logging.getLogger("sigame-helper").exception("Не удалось открыть окно приложения")
         return False
