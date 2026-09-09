@@ -165,7 +165,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                   <input
                     className="field font-mono text-[12px]"
                     value={settings.download.directory ?? ''}
-                    placeholder="по умолчанию: _downloads в рабочей папке"
+                    placeholder="по умолчанию: Скачанное в рабочей папке"
                     onChange={(event) =>
                       void patch({ download: { directory: event.target.value || null } })
                     }

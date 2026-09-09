@@ -128,7 +128,7 @@ class ExportRequest(BaseModel):
     video: VideoOptions = Field(default_factory=VideoOptions)
     audio: AudioOptions = Field(default_factory=AudioOptions)
     image: ImageOptions = Field(default_factory=ImageOptions)
-    #: Куда сохранить. ``None`` = подпапка ``_processed`` рядом с исходником.
+    #: Куда сохранить. ``None`` = подпапка ``Обработанное`` рядом с исходником.
     output_dir: str | None = None
     #: Имя файла без расширения. ``None`` = имя исходника + суффикс.
     output_name: str | None = None

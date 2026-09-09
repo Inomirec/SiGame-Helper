@@ -162,10 +162,10 @@ def default_output_dir(source: Path, kind: str | None = None) -> Path:
     """Подпапка для результатов рядом с исходником.
 
     Раскладку по типу внутрь не добавляем: исходник уже лежит там, куда его
-    положила загрузка, и путь вида ``Видео/_processed/Видео`` не сообщает
+    положила загрузка, и путь вида ``Видео/Обработанное/Видео`` не сообщает
     ничего нового — только добавляет кликов по дороге к файлу.
     """
-    folder = config.load().export.output_folder or "_processed"
+    folder = config.load().export.output_folder or "Обработанное"
     return source.parent / folder
 
 

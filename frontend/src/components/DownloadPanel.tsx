@@ -383,7 +383,7 @@ export function DownloadPanel() {
           <FolderOpen size={11} />
           Сохранять в
           <span className="max-w-[420px] truncate font-mono text-ink-dim">
-            {settings?.download.directory ?? `${settings?.resolvedWorkspace ?? ''}\\_downloads`}
+            {settings?.download.directory ?? `${settings?.resolvedWorkspace ?? ''}\\Скачанное`}
           </span>
         </button>
       </div>

@@ -308,7 +308,7 @@ export function ExportPanel({
             />
             <p className="mt-1.5 text-[11px] leading-snug text-ink-faint">
               Это приписка к имени. Результат ляжет в подпапку{' '}
-              <span className="font-mono text-ink-dim">_processed</span> рядом с исходником,
+              <span className="font-mono text-ink-dim">Обработанное</span> рядом с исходником,
               оригинал останется нетронутым.
             </p>
           </div>

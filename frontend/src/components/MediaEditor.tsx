@@ -257,7 +257,7 @@ export function MediaEditor({
         time: media.currentTime,
         image: { format: 'avif', target_kb: 100, max_dimension: 1920, effort: 4 },
       })
-      toast('Кадр сохранён в очередь — появится в подпапке _processed', 'ok')
+      toast('Кадр сохранён в очередь — появится в подпапке «Обработанное»', 'ok')
       setQueueOpen(true)
     } catch (error) {
       toast((error as Error).message, 'error')

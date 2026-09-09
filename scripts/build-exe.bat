@@ -1,27 +1,42 @@
 @echo off
 chcp 65001 >nul
-title SiGame Helper - сборка запускалки
+title SiGame Helper - сборка
 cd /d "%~dp0.."
 
-rem Пересобирает "SiGame Helper.exe" из launcher.py.
-rem Нужно только когда меняется сам запуск программы, а не её код:
-rem запускалка лишь готовит окружение и открывает приложение.
+rem Собирает две вещи:
+rem   SiGame Helper.exe          - запускалка, лежит в установленной папке
+rem   Установка SiGame Helper.exe - установщик, его и выкладывают в релиз
+rem
+rem Порядок важен: установщик несёт запускалку внутри себя, поэтому она
+rem должна быть собрана раньше. Перед сборкой обязательно соберите фронтенд
+rem (scripts\build.bat) - иначе внутрь попадёт старый интерфейс.
 
 if not exist ".venv\Scripts\python.exe" goto :noenv
 
+echo   Ставлю PyInstaller...
 .venv\Scripts\python.exe -m pip install --quiet pyinstaller
+
+echo   [1/2] Собираю запускалку...
 .venv\Scripts\python.exe -m PyInstaller --noconfirm --onefile --noconsole --clean ^
-  --name "SiGame Helper" ^
-  --icon "%CD%\assets\icon.ico" ^
-  --distpath "%CD%\dist-launcher" ^
-  --workpath "%CD%\build-launcher" ^
-  --specpath "%CD%\build-launcher" ^
-  launcher.py
+  --name "SiGame Helper" --icon "%CD%\assets\icon.ico" ^
+  --distpath "%CD%\dist-launcher" --workpath "%CD%\build-launcher" ^
+  --specpath "%CD%\build-launcher" launcher.py
+if errorlevel 1 goto :fail
+copy /y "dist-launcher\SiGame Helper.exe" "SiGame Helper.exe" >nul
+
+echo   [2/2] Собираю установщик...
+.venv\Scripts\python.exe -m PyInstaller --noconfirm --onefile --noconsole --clean ^
+  --name "Установка SiGame Helper" --icon "%CD%\assets\icon.ico" ^
+  --add-data "%CD%\backend;backend" ^
+  --add-data "%CD%\assets;assets" ^
+  --add-data "%CD%\scripts;scripts" ^
+  --add-data "%CD%\SiGame Helper.exe;." ^
+  --distpath "%CD%\dist-setup" --workpath "%CD%\build-setup" ^
+  --specpath "%CD%\build-setup" installer.py
 if errorlevel 1 goto :fail
 
-copy /y "dist-launcher\SiGame Helper.exe" "SiGame Helper.exe" >nul
 echo.
-echo   Готово: SiGame Helper.exe пересобран.
+echo   Готово. Установщик лежит в папке dist-setup - его и прикладывайте к релизу.
 echo.
 pause
 exit /b 0

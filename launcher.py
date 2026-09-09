@@ -28,6 +28,20 @@ GET_PIP = "https://bootstrap.pypa.io/get-pip.py"
 CREATE_NO_WINDOW = 0x08000000
 
 
+def child_env() -> dict:
+    """Окружение для дочерних процессов.
+
+    Без указания UTF-8 русский текст от них приходит нечитаемым — в окне
+    видны ромбы с вопросами вместо букв.
+    """
+    import os
+
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
 def root_dir() -> Path:
     """Папка программы: рядом с .exe, а при отладке — рядом с этим файлом."""
     if getattr(sys, "frozen", False):
@@ -39,7 +53,6 @@ ROOT = root_dir()
 RUNTIME = ROOT / "runtime"
 READY = RUNTIME / ".ready"
 ICON = ROOT / "assets" / "icon.ico"
-FOLDER_LINK = ROOT / "Запустить SiGame Helper.lnk"
 
 
 class Progress:
@@ -135,6 +148,7 @@ def run_quiet(args: list[str]) -> None:
         args,
         cwd=str(ROOT),
         capture_output=True,
+        env=child_env(),
         creationflags=CREATE_NO_WINDOW,
     )
     if result.returncode != 0:
@@ -211,6 +225,7 @@ def install_tools(progress: Progress) -> None:
         cwd=str(ROOT),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        env=child_env(),
         creationflags=CREATE_NO_WINDOW,
     )
     for raw in process.stdout:
@@ -222,20 +237,6 @@ def install_tools(progress: Progress) -> None:
             "Не удалось скачать ffmpeg. Проверьте интернет и запустите ещё раз."
         )
     marker.write_text("ok", encoding="ascii")
-
-
-def make_shortcuts(ask_desktop: bool) -> None:
-    """Кладёт ярлык в папку программы и, если разрешат, на рабочий стол."""
-    script = ROOT / "scripts" / "shortcut.ps1"
-    if not script.exists():
-        return
-    args = [
-        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-        "-File", str(script),
-    ]
-    if not ask_desktop:
-        args.append("-Silent")
-    subprocess.run(args, cwd=str(ROOT), creationflags=CREATE_NO_WINDOW)
 
 
 def start_app() -> None:
@@ -254,8 +255,6 @@ def main() -> int:
         if first_time:
             install_runtime(progress)
         install_tools(progress)
-        if not FOLDER_LINK.exists():
-            make_shortcuts(ask_desktop=first_time)
         if first_time:
             progress.step("Готово", 100)
         progress.close()

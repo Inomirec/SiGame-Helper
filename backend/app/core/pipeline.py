@@ -320,7 +320,7 @@ def _download_dir(request: DownloadRequest) -> tuple[Path, bool]:
         return Path(request.output_dir).expanduser(), False
     if settings.download.directory:
         return Path(settings.download.directory).expanduser(), False
-    return Path(settings.resolved_workspace()) / "_downloads", True
+    return Path(settings.resolved_workspace()) / "Скачанное", True
 
 
 def submit_download(request: DownloadRequest, item: DownloadItem) -> Job:
