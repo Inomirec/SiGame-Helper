@@ -1,13 +1,15 @@
-"""Установщик SiGame Helper.
+"""SiGame Helper — единственный файл, на который нажимает человек.
 
-Обычный мастер: спрашивает, куда ставить, нужен ли ярлык и открывать ли
-программу после установки, — и только по кнопке «Установить» принимается
-за дело. Человек нажимает на файл и видит понятное окно, а не сразу
-непрошеную установку.
+Он и устанавливает программу, и запускает её. Что именно делать, решает сам:
 
-Сама программа лежит внутри этого файла, а тяжёлое (Python, ffmpeg, Deno)
-докачивается во время установки — иначе установщик весил бы под триста
-мегабайт.
+* рядом лежит готовое окружение (папка ``runtime``) — молча открывает
+  программу, как обычный ярлык;
+* окружения нет — показывает окно установки, спрашивает куда ставить,
+  нужен ли ярлык, и только по кнопке «Установить» берётся за дело.
+
+Раньше файлов было два — установщик и запускалка, — и это сбивало с толку:
+в архиве с GitHub оказывался не тот, что в релизе. Теперь файл один и ведёт
+себя одинаково, откуда бы его ни взяли.
 """
 
 from __future__ import annotations
@@ -34,25 +36,41 @@ GET_PIP = "https://bootstrap.pypa.io/get-pip.py"
 CREATE_NO_WINDOW = 0x08000000
 
 
+def own_dir() -> Path:
+    """Папка, в которой лежит сам файл."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
 def payload_dir() -> Path:
-    """Где лежит упакованная программа: внутри .exe или рядом при отладке."""
-    bundled = getattr(sys, "_MEIPASS", None)
-    return Path(bundled) if bundled else Path(__file__).resolve().parent
+    """Откуда брать файлы программы при установке.
 
-
-def here_target() -> Path:
-    """Папка рядом с самим установщиком.
-
-    Люди распаковывают такие программы на рабочий стол или в загрузки и
-    там же держат — так их проще найти, обновить и снести. Кладём не прямо
-    рядом, а в свою подпапку, иначе программа рассыплется по «Загрузкам».
+    Если рядом с нами уже лежит ``backend`` — значит нас распаковали вместе
+    с исходниками, и брать надо их: они точно свежее упакованных внутрь.
+    Иначе достаём копию из самого файла.
     """
-    where = (
-        Path(sys.executable).resolve().parent
-        if getattr(sys, "frozen", False)
-        else Path(__file__).resolve().parent
-    )
-    return where / APP_NAME
+    here = own_dir()
+    if (here / "backend").is_dir():
+        return here
+    bundled = getattr(sys, "_MEIPASS", None)
+    return Path(bundled) if bundled else here
+
+
+def ready_here() -> bool:
+    """Программа уже установлена рядом с нами?"""
+    return (own_dir() / "runtime" / ".ready").exists()
+
+
+def default_target() -> Path:
+    """Куда предлагаем поставить.
+
+    Когда рядом уже лежат файлы программы (распакованный архив), ставим
+    прямо сюда — незачем плодить копию в подпапке. Когда мы одни, делаем
+    свою папку, иначе программа рассыплется по «Загрузкам».
+    """
+    here = own_dir()
+    return here if (here / "backend").is_dir() else here / APP_NAME
 
 
 def system_target() -> Path:
@@ -69,8 +87,18 @@ def child_env() -> dict[str, str]:
     return env
 
 
+def start_app(folder: Path) -> None:
+    """Открывает саму программу."""
+    subprocess.Popen(
+        [str(folder / "runtime" / "pythonw.exe"),
+         str(folder / "backend" / "run.py"), "--window"],
+        cwd=str(folder),
+        creationflags=CREATE_NO_WINDOW,
+    )
+
+
 class Cancelled(Exception):
-    """Человек нажал «Отмена»."""
+    """Человек передумал: нажал «Отмена» или закрыл окно."""
 
 
 class Worker:
@@ -87,8 +115,6 @@ class Worker:
         self.report = report
         self.stop = threading.Event()
 
-    # --- общение с окном -------------------------------------------------
-
     def say(self, text: str, percent: float | None = None) -> None:
         if self.stop.is_set():
             raise Cancelled
@@ -97,24 +123,29 @@ class Worker:
     # --- шаги установки --------------------------------------------------
 
     def copy_program(self) -> None:
-        self.say("Копирую файлы программы…", 2)
         source = payload_dir()
         self.target.mkdir(parents=True, exist_ok=True)
 
-        for name in ("backend", "assets", "scripts"):
-            src = source / name
-            if not src.exists():
-                continue
-            dst = self.target / name
-            if dst.exists():
-                shutil.rmtree(dst, ignore_errors=True)
-            shutil.copytree(
-                src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
-            )
+        # Ставим в ту же папку, откуда берём, — копировать нечего.
+        if source.resolve() != self.target.resolve():
+            self.say("Копирую файлы программы…", 2)
+            for name in ("backend", "assets", "scripts"):
+                src = source / name
+                if not src.exists():
+                    continue
+                dst = self.target / name
+                if dst.exists():
+                    shutil.rmtree(dst, ignore_errors=True)
+                shutil.copytree(
+                    src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+                )
 
-        launcher = source / f"{APP_NAME}.exe"
-        if launcher.exists():
-            shutil.copy2(launcher, self.target / f"{APP_NAME}.exe")
+        # Кладём рядом с программой самих себя: этот же файл будет её запускать.
+        if getattr(sys, "frozen", False):
+            myself = Path(sys.executable).resolve()
+            destination = self.target / f"{APP_NAME}.exe"
+            if myself != destination.resolve():
+                shutil.copy2(myself, destination)
 
     def download(self, url: str, target: Path, label: str, base: float, span: float) -> None:
         with urllib.request.urlopen(url, timeout=60) as response:
@@ -248,12 +279,12 @@ class Worker:
             self.report.put(("done", None, None))
         except Cancelled:
             self.report.put(("cancelled", None, None))
-        except Exception as error:
+        except Exception as error:  # рассказываем человеку, а не в пустоту
             self.report.put(("error", str(error), None))
 
 
 class Wizard:
-    """Окно установщика: три страницы — настройка, ход дела, готово."""
+    """Окно установки: настройка, ход дела, итог."""
 
     def __init__(self) -> None:
         import tkinter as tk
@@ -264,6 +295,8 @@ class Wizard:
         self.root = tk.Tk()
         self.root.title(f"Установка {APP_NAME}")
         self.root.resizable(False, False)
+        # Крестик обязан останавливать работу, а не оставлять её в фоне.
+        self.root.protocol("WM_DELETE_WINDOW", self.close_request)
 
         icon = payload_dir() / "assets" / "icon.ico"
         if icon.exists():
@@ -275,7 +308,7 @@ class Wizard:
         self.frame = ttk.Frame(self.root, padding=(26, 22))
         self.frame.pack(fill="both", expand=True)
 
-        self.path = tk.StringVar(value=str(here_target()))
+        self.path = tk.StringVar(value=str(default_target()))
         self.here = tk.BooleanVar(value=True)
         self.want_shortcut = tk.BooleanVar(value=True)
         self.want_open = tk.BooleanVar(value=True)
@@ -286,6 +319,7 @@ class Wizard:
         self.worker: Worker | None = None
         self.status = None
         self.bar = None
+        self.working = False
 
         self.show_setup()
         self.center()
@@ -301,10 +335,20 @@ class Wizard:
         for child in self.frame.winfo_children():
             child.destroy()
 
+    def close_request(self) -> None:
+        """Крестик: во время установки спрашиваем, иначе просто уходим."""
+        if not self.working:
+            self.root.destroy()
+            return
+        from tkinter import messagebox
+
+        if messagebox.askyesno(APP_NAME, "Прервать установку?"):
+            self.cancel()
+
     # --- страница 1: настройка ------------------------------------------
 
     def show_setup(self) -> None:
-        ttk, tk = self.ttk, self.tk
+        ttk = self.ttk
         self.clear()
 
         ttk.Label(self.frame, text=APP_NAME, font=("Segoe UI", 14, "bold")).pack(anchor="w")
@@ -357,7 +401,7 @@ class Wizard:
     def toggle_place(self) -> None:
         """Поле пути живёт, только когда человек снял галочку."""
         if self.here.get():
-            self.path.set(str(here_target()))
+            self.path.set(str(default_target()))
             state = "disabled"
         else:
             self.path.set(str(system_target()))
@@ -409,6 +453,7 @@ class Wizard:
             return
 
         self.show_progress()
+        self.working = True
         self.worker = Worker(target, self.want_shortcut.get(), self.queue)
         threading.Thread(target=self.worker.run, name="install", daemon=True).start()
         self.root.after(100, self.pump)
@@ -417,7 +462,7 @@ class Wizard:
         if self.worker:
             self.worker.stop.set()
         if self.status:
-            self.status.config(text="Отменяю…")
+            self.status.config(text="Останавливаю…")
 
     def pump(self) -> None:
         """Забирает сообщения от рабочего потока. Окно всё это время живое."""
@@ -430,12 +475,15 @@ class Wizard:
                     if percent is not None:
                         self.bar.config(value=percent)
                 elif kind == "done":
+                    self.working = False
                     self.show_done()
                     return
                 elif kind == "cancelled":
+                    self.working = False
                     self.root.destroy()
                     return
                 elif kind == "error":
+                    self.working = False
                     self.show_error(text or "")
                     return
         except queue.Empty:
@@ -464,9 +512,9 @@ class Wizard:
         ttk = self.ttk
         self.clear()
 
-        ttk.Label(self.frame, text="Установка не завершилась", font=("Segoe UI", 14, "bold")).pack(
-            anchor="w"
-        )
+        ttk.Label(
+            self.frame, text="Установка не завершилась", font=("Segoe UI", 14, "bold")
+        ).pack(anchor="w")
         ttk.Label(
             self.frame,
             text=(
@@ -485,9 +533,7 @@ class Wizard:
 
     def finish(self) -> None:
         if self.want_open.get() and self.worker:
-            exe = self.worker.target / f"{APP_NAME}.exe"
-            if exe.exists():
-                subprocess.Popen([str(exe)], cwd=str(self.worker.target))
+            start_app(self.worker.target)
         self.root.destroy()
 
     def run(self) -> None:
@@ -495,6 +541,11 @@ class Wizard:
 
 
 def main() -> int:
+    # Программа уже стоит рядом — значит нас позвали как обычный ярлык.
+    if ready_here():
+        start_app(own_dir())
+        return 0
+
     Wizard().run()
     return 0
 
