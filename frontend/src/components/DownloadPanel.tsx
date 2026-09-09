@@ -9,6 +9,7 @@ import {
   Plus,
   Scissors,
   Trash2,
+  X,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { plural, timecode } from '../lib/format'
@@ -16,7 +17,7 @@ import type { GalleryItem } from '../lib/types'
 import { useStore } from '../store'
 import { FolderPicker } from './FolderPicker'
 import { LinkPreview } from './LinkPreview'
-import { Button, Section, Segmented, Select } from './ui'
+import { Button, Section, Segmented, Select, Toggle } from './ui'
 
 type Mode = 'auto' | 'video' | 'audio' | 'images'
 
@@ -73,8 +74,8 @@ export function DownloadPanel() {
       ? (presets.image ?? [])
       : mode === 'audio'
         ? (presets.audio ?? [])
-        : mode === 'video'
-          ? (presets.video ?? [])
+        // В «Авто» тип заранее неизвестен, поэтому показываем всё:
+          // в свёрнутом списке длина не мешает.
           : [...(presets.video ?? []), ...(presets.audio ?? []), ...(presets.image ?? [])]
 
   // Сменили тип — выбранный пресет мог стать неподходящим, снимаем его.
@@ -114,6 +115,48 @@ export function DownloadPanel() {
     return true
   }
 
+  /** Раскладывает ссылки из текста по строкам. Возвращает, сколько нашлось. */
+  function addLinks(text: string): number {
+    const links = text
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter((item) => /^https?:\/\//i.test(item))
+
+    if (!links.length) return 0
+
+    setRows((current) => {
+      const next = current.map((row) => ({ ...row }))
+      const queue = [...links]
+      for (const row of next) {
+        if (!row.url.trim() && queue.length) row.url = queue.shift() as string
+      }
+      return [...next, ...queue.map((link) => emptyRow(link))]
+    })
+    return links.length
+  }
+
+  // Ctrl+V где угодно на вкладке — ссылка попадает в список. Целиться мышью
+  // в узкую строчку каждый раз неудобно, а событие вставки приходит и без
+  // разрешения на чтение буфера.
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName
+      // В поле ввода вставку обрабатывает само поле.
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return
+
+      const text = event.clipboardData?.getData('text') ?? ''
+      const count = addLinks(text)
+      if (count) {
+        event.preventDefault()
+        toast(`Добавлено ссылок: ${count}`, 'ok')
+      }
+    }
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   /** Кладёт ссылки из буфера обмена в свободные строки. */
   async function pasteFromClipboard() {
     let text = ''
@@ -143,6 +186,25 @@ export function DownloadPanel() {
       return [...next, ...queue.map((link) => emptyRow(link))]
     })
     toast(`Добавлено ссылок: ${links.length}`, 'ok')
+  }
+
+  // Ссылку стёрли или поменяли — список её картинок больше не про неё.
+  useEffect(() => {
+    if (gallery && !filled.some((row) => row.url.trim() === gallery.url)) {
+      setGallery(null)
+      setPicked([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows])
+
+  /** Сохраняет настройку загрузки и сразу перечитывает их с сервера. */
+  async function patchDownload(value: Record<string, unknown>) {
+    try {
+      await api.patchSettings({ download: value })
+      await refreshSettings()
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    }
   }
 
   async function start() {
@@ -238,11 +300,15 @@ export function DownloadPanel() {
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-5 overflow-y-auto px-6 py-6">
+    <div className="flex h-full min-h-0">
+      {/* Слева — ссылки и картинки, справа — настройки и кнопка.
+          Так же устроена медиатека, и кнопка «Скачать» перестаёт
+          ездить по экрану при прокрутке. */}
+      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto px-6 py-6">
       <header>
         <h1 className="text-[20px] font-semibold">Загрузка</h1>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-dim">
-          Каждая ссылка — своя строка. Нажмите «Разметить», чтобы открыть видео прямо здесь и
+          Каждая ссылка — своя строка. Нажмите «Предпросмотр с разметкой», чтобы открыть видео прямо здесь и
           выбрать нужный отрезок: скачается только он, а не весь ролик. Без разметки скачивается
           целиком.
         </p>
@@ -293,7 +359,7 @@ export function DownloadPanel() {
         <div className="animate-in-up space-y-3 rounded-xl bg-surface-2 p-3 ring-1 ring-line-soft">
           <div className="flex items-center justify-between">
             <span className="text-[12.5px] font-medium">Найдено файлов: {gallery.items.length}</span>
-            <div className="flex gap-2 text-[11px]">
+            <div className="flex items-center gap-2 text-[11px]">
               <button
                 type="button"
                 className="text-ink-dim hover:text-ink"
@@ -303,6 +369,17 @@ export function DownloadPanel() {
               </button>
               <button type="button" className="text-ink-dim hover:text-ink" onClick={() => setPicked([])}>
                 Снять выбор
+              </button>
+              <button
+                type="button"
+                title="Закрыть выбор"
+                className="rounded p-1 text-ink-faint hover:bg-surface-3 hover:text-ink"
+                onClick={() => {
+                  setGallery(null)
+                  setPicked([])
+                }}
+              >
+                <X size={13} />
               </button>
             </div>
           </div>
@@ -335,15 +412,6 @@ export function DownloadPanel() {
               )
             })}
           </div>
-          <Button
-            tone="primary"
-            className="w-full"
-            disabled={!picked.length || busy}
-            onClick={() => void downloadGallerySelection()}
-          >
-            <Download size={14} />
-            Скачать выбранные ({picked.length})
-          </Button>
           <p className="text-[11px] text-ink-faint">
             Превью подгружаются напрямую с сайта-источника. Если картинки не отображаются — это
             защита от чужих ссылок, на само скачивание она не влияет.
@@ -351,84 +419,128 @@ export function DownloadPanel() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <span className="label">Что скачиваем</span>
-          <Segmented<Mode>
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: 'auto', label: 'Авто', title: 'Определить по ссылке' },
-              { value: 'video', label: 'Видео' },
-              { value: 'audio', label: 'Звук' },
-              { value: 'images', label: 'Кадры' },
-            ]}
-          />
-        </div>
-
-        {mode === 'audio' ? (
-          <Select
-            label="Формат звука"
-            value={audioFormat}
-            onChange={setAudioFormat}
-            options={[
-              { value: 'opus', label: 'Opus — минимальный вес' },
-              { value: 'mp3', label: 'MP3 — совместимость' },
-              { value: 'm4a', label: 'M4A / AAC' },
-              { value: 'best', label: 'Как на источнике' },
-            ]}
-          />
-        ) : (
-          <Select
-            label="Качество"
-            value={String(maxHeight)}
-            onChange={(value) => setMaxHeight(Number(value))}
-            options={[
-              { value: '0', label: 'Максимально доступное' },
-              { value: '1080', label: 'до 1080p' },
-              { value: '720', label: 'до 720p' },
-              { value: '480', label: 'до 480p' },
-            ]}
-          />
-        )}
       </div>
 
-      <Section title="После скачивания">
-        <Select
-          label="Сразу сжать пресетом"
-          value={autoPreset}
-          onChange={setAutoPreset}
-          options={[
-            { value: '', label: 'Не сжимать — просто скачать' },
-            ...autoPresets.map((preset) => ({ value: preset.id, label: preset.label })),
-          ]}
-          hint="Скачанный файл автоматически уйдёт в очередь обработки с этим пресетом."
-        />
-      </Section>
+      <aside className="flex w-[340px] shrink-0 flex-col border-l border-line-soft bg-surface">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5">
+          <Section title="Формат">
+            <Segmented<Mode>
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: 'auto', label: 'Авто', title: 'Определить по ссылке' },
+                { value: 'video', label: 'Видео' },
+                { value: 'audio', label: 'Звук' },
+                { value: 'images', label: 'Картинки' },
+              ]}
+            />
+          </Section>
 
-      <div className="sticky bottom-0 -mx-6 border-t border-line-soft bg-base/85 px-6 py-3 backdrop-blur">
+          {mode === 'audio' ? (
+            <Section title="Формат звука">
+              <Segmented
+                value={audioFormat}
+                onChange={setAudioFormat}
+                options={[
+                  { value: 'opus', label: 'Opus', title: 'Минимальный вес' },
+                  { value: 'mp3', label: 'MP3', title: 'Совместимость со всем' },
+                  { value: 'm4a', label: 'M4A', title: 'AAC в контейнере M4A' },
+                  { value: 'best', label: 'Авто', title: 'Оставить формат источника' },
+                ]}
+              />
+            </Section>
+          ) : (
+            <Section title="Качество">
+              <Segmented
+                value={String(maxHeight)}
+                onChange={(value) => setMaxHeight(Number(value))}
+                options={[
+                  { value: '0', label: 'Макс.', title: 'Максимально доступное' },
+                  { value: '1080', label: '1080p' },
+                  { value: '720', label: '720p' },
+                  { value: '480', label: '480p' },
+                ]}
+              />
+            </Section>
+          )}
+
+          <Section title="Пресеты">
+            <Select
+              value={autoPreset}
+              onChange={setAutoPreset}
+              options={[
+                { value: '', label: 'Не сжимать — просто скачать' },
+                // К названию приписываем, чем именно жмём: в выпадающем списке
+                // подсказки не покажешь, а выбирать вслепую неудобно.
+                ...autoPresets.map((preset) => ({
+                  value: preset.id,
+                  label: preset.tech ? `${preset.label} — ${preset.tech}` : preset.label,
+                })),
+              ]}
+            />
+          </Section>
+
+          <Section title="Куда скачивать">
+            {/* Папку меняют часто — значит она должна быть на виду,
+                а не строчкой мелким шрифтом под кнопкой. */}
+            <button
+              type="button"
+              onClick={() => setFolderPicker(true)}
+              className="flex w-full items-center gap-2 rounded-xl border border-line-soft bg-surface-2 px-3 py-2.5 text-left transition-colors hover:border-line hover:bg-surface-3"
+            >
+              <FolderOpen size={14} className="shrink-0 text-ink-faint" />
+              <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-dim">
+                {settings?.download.directory ?? `${settings?.resolvedWorkspace ?? ''}\Скачанное`}
+              </span>
+            </button>
+          </Section>
+
+          <Section title="Настройки загрузки">
+            {/* Живут здесь, а не в общих настройках: их трогают ради
+                конкретной ссылки, и бегать в другое окно неудобно. */}
+            <div className="space-y-1 rounded-xl bg-surface-2 px-3 py-2.5">
+              <Toggle
+                checked={settings?.download.force_mp4 ?? true}
+                onChange={(value) => void patchDownload({ force_mp4: value })}
+                label="Всегда приводить видео к MP4"
+                hint="Гарантирует, что файл откроется во встроенном плеере со звуком."
+              />
+              <Toggle
+                checked={settings?.download.embed_metadata ?? true}
+                onChange={(value) => void patchDownload({ embed_metadata: value })}
+                label="Встраивать метаданные и обложку"
+                hint="Внутрь файла записывается название, автор и картинка-обложка. Плееры показывают их вместо имени файла, а обложка видна в проводнике."
+              />
+              <Toggle
+                checked={settings?.download.download_playlists ?? false}
+                onChange={(value) => void patchDownload({ download_playlists: value })}
+                label="Скачивать плейлисты целиком"
+                hint="По умолчанию из ссылки на плейлист берётся только одно видео."
+              />
+            </div>
+          </Section>
+
+        </div>
+        <div className="border-t border-line-soft bg-surface px-4 py-3">
         <Button
           tone="primary"
           className="w-full py-2.5"
-          disabled={!filled.length || busy || !ytdlpReady}
-          onClick={() => void start()}
+          disabled={!filled.length || busy || probing || !ytdlpReady}
+          onClick={() => void (gallery ? downloadGallerySelection() : start())}
         >
-          {busy ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
-          Скачать {filled.length > 1 ? `(${filled.length})` : ''}
+          {busy || probing ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : (
+            <Download size={15} />
+          )}
+          {probing
+            ? 'Смотрю, что в посте…'
+            : gallery
+              ? `Скачать выбранные (${picked.length})`
+              : `Скачать ${filled.length > 1 ? `(${filled.length})` : ''}`}
         </Button>
-        <button
-          type="button"
-          onClick={() => setFolderPicker(true)}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 text-[11px] text-ink-faint transition-colors hover:text-ink-dim"
-          title="Выбрать папку для скачанного"
-        >
-          <FolderOpen size={11} />
-          Сохранять в
-          <span className="max-w-[420px] truncate font-mono text-ink-dim">
-            {settings?.download.directory ?? `${settings?.resolvedWorkspace ?? ''}\\Скачанное`}
-          </span>
-        </button>
-      </div>
+        </div>
+      </aside>
 
       <FolderPicker
         open={folderPicker}
@@ -533,7 +645,7 @@ function LinkRow({
           className="inline-flex items-center gap-1.5 rounded-lg bg-surface-3 px-2 py-1 text-[11px] text-ink-dim transition-colors hover:bg-line hover:text-ink disabled:opacity-35"
         >
           <Film size={12} />
-          Разметить
+          Предпросмотр с разметкой
         </button>
 
         <button
@@ -548,7 +660,7 @@ function LinkRow({
           <Scissors size={11} />
           {hasSection
             ? `${timecode(row.start ?? 0, true)} → ${row.end !== null ? timecode(row.end, true) : 'конец'}`
-            : 'весь ролик'}
+            : 'Указать тайминги'}
         </button>
 
         {hasSection && (

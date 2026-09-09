@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Play, Terminal } from 'lucide-react'
+import { FolderOpen, Play, Terminal } from 'lucide-react'
 import { api } from '../lib/api'
+import { FolderPicker } from './FolderPicker'
 import { humanSize, plural, timecode } from '../lib/format'
 import type { AudioOptions, FileInfo, Preset, VideoOptions } from '../lib/types'
 import { useStore } from '../store'
@@ -80,6 +81,10 @@ export function ExportPanel({
   }
   const [busy, setBusy] = useState(false)
   const [command, setCommand] = useState<string | null>(null)
+  // Куда класть результат: рядом с исходником или в выбранную папку.
+  const [nearSource, setNearSource] = useState(true)
+  const [outputDir, setOutputDir] = useState('')
+  const [pickingFolder, setPickingFolder] = useState(false)
 
   // При первом показе (и при смене типа файла) берём пресет по умолчанию.
   useEffect(() => {
@@ -129,6 +134,7 @@ export function ExportPanel({
   const buildRequest = (source: string, withTrim: boolean) => ({
     source,
     kind: file.kind,
+    output_dir: nearSource ? null : outputDir.trim() || null,
     trim: withTrim ? { start: trim.in, end: trim.out } : { start: null, end: null },
     // Затухания нарисованы на дорожках открытого файла — в пакет их не тащим.
     video: {
@@ -192,6 +198,22 @@ export function ExportPanel({
       toast((error as Error).message, 'error')
     }
   }
+
+  // Пока консоль открыта, команда пересобирается под текущие настройки.
+  // Это же и способ вернуть всё как было: сломали строку — переключите
+  // пресет, и появится рабочая.
+  useEffect(() => {
+    if (command === null) return
+    let cancelled = false
+    api
+      .exportPreview(buildRequest(file.path, true))
+      .then((preview) => !cancelled && setCommand(preview.command ?? ''))
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetId, video, audio, streamCopy, trim.in, trim.out, nearSource, outputDir])
 
   /** Запускает команду в том виде, в каком её оставил пользователь. */
   async function runRaw() {
@@ -268,75 +290,80 @@ export function ExportPanel({
                     ? 'Этот способ недоступен на вашем компьютере'
                     : preset.hint}
                 </span>
+                {/* Чем именно жмём — бледной строкой: не мешает, но снимает
+                    вопрос «а чем Баланс отличается от Качества». */}
+                {preset.tech && preset.available !== false && (
+                  <span className="mt-1 block font-mono text-[10px] text-ink-faint/60">
+                    {preset.tech}
+                  </span>
+                )}
               </button>
             ))}
           </div>
         </Section>
 
 
-        {!streamCopy && !isAudio && status?.gpuAvailable && (
-          <Section title="Чем кодировать">
-            <div className="rounded-xl bg-surface-2 px-3 py-2.5">
+        <Section title="Куда складывать результат">
+          <div className="space-y-1 rounded-xl bg-surface-2 px-3 py-2.5">
+            <Toggle
+              checked={nearSource}
+              onChange={setNearSource}
+              label="В подпапку рядом с исходником"
+              hint="Папка «Обработанное» появится там же, где лежит исходный файл. Оригинал не трогаем."
+            />
+          </div>
+          {!nearSource && (
+            <div className="flex gap-2">
+              <input
+                className="field font-mono text-[12px]"
+                value={outputDir}
+                placeholder="Выберите папку…"
+                onChange={(event) => setOutputDir(event.target.value)}
+              />
+              <Button onClick={() => setPickingFolder(true)}>
+                <FolderOpen size={14} />
+              </Button>
+            </div>
+          )}
+          <p className="text-[11px] leading-snug text-ink-faint">
+            К имени добавится приписка{' '}
+            <span className="font-mono text-ink-dim">{suffix}</span> — по названию
+            пресета.
+          </p>
+        </Section>
+
+        <Section title="Остальные настройки">
+          <div className="space-y-1 rounded-xl bg-surface-2 px-3 py-2.5">
+            {!streamCopy && !isAudio && status?.gpuAvailable && (
               <Toggle
                 checked={video.use_gpu}
                 onChange={(value) => setVideo({ ...video, use_gpu: value })}
                 label="Кодировать на видеокарте"
-                hint="Втрое быстрее, но картинка при том же весе чуть хуже. Полезно на длинных исходниках, когда некогда ждать процессор."
+                hint="Высокая скорость, но в теории могут появиться незначительные артефакты. Полезно для больших видео, когда важно время."
               />
-            </div>
-          </Section>
-        )}
-
-        <Section title="Звук">
-          <div className="space-y-1 rounded-xl bg-surface-2 px-3 py-2.5">
+            )}
             <Toggle
               checked={audio.loudnorm}
               onChange={(value) => setAudio({ ...audio, loudnorm: value })}
               disabled={streamCopy}
-              label="Выровнять громкость"
-              hint="Все вопросы в паке будут звучать одинаково громко — ведущему не придётся дёргать ползунок на каждом."
+              label="Выравнивание звука"
+              hint="У всех источников с этой настройкой будет одинаковый предел громкости."
             />
             <Toggle
               checked={audio.mono}
               onChange={(value) => setAudio({ ...audio, mono: value })}
               disabled={streamCopy}
-              label="Свести в моно"
-              hint="Для речи и цитат: звук тот же, вес дорожки меньше примерно на треть."
+              label="Перевести звук в моно"
+              hint="Делает звук более плоским, но и понижает вес файла примерно на треть."
+            />
+            <Toggle
+              checked={command !== null}
+              onChange={(value) => (value ? void loadCommand() : setCommand(null))}
+              label="Задать параметры в консоли ffmpeg"
+              hint="Для тех, кто знает ffmpeg: показывает готовую команду, её можно поправить и запустить как есть."
             />
           </div>
-          {streamCopy && (
-            <p className="text-[11px] leading-snug text-ink-faint">
-              Выбран режим без сжатия — звук копируется как есть, поэтому эти галочки
-              ни на что не влияют.
-            </p>
-          )}
-        </Section>
-
-        <Section title="Имя файла">
-          <div>
-            <input
-              className="field"
-              value={suffix}
-              onChange={(event) => setSuffix(event.target.value)}
-              placeholder="_sig"
-            />
-            <p className="mt-1.5 text-[11px] leading-snug text-ink-faint">
-              Это приписка к имени. Результат ляжет в подпапку{' '}
-              <span className="font-mono text-ink-dim">Обработанное</span> рядом с исходником,
-              оригинал останется нетронутым.
-            </p>
-          </div>
-        </Section>
-
-        <button
-          type="button"
-          onClick={() => void loadCommand()}
-          className="flex items-center gap-1.5 text-[11px] text-ink-faint transition-colors hover:text-ink-dim"
-        >
-          <Terminal size={11} />
-          {command ? 'Скрыть команду ffmpeg' : 'Показать команду ffmpeg'}
-        </button>
-        {command !== null && (
+          {command !== null && (
           <div className="space-y-2">
             <textarea
               className="field h-40 resize-y font-mono text-[10.5px] leading-relaxed"
@@ -355,7 +382,23 @@ export function ExportPanel({
             </Button>
           </div>
         )}
+          {streamCopy && (
+            <p className="text-[11px] leading-snug text-ink-faint">
+              Выбран режим без сжатия — звук копируется как есть, поэтому галочки
+              звука ни на что не влияют.
+            </p>
+          )}
+        </Section>
+
+
       </div>
+
+      <FolderPicker
+        open={pickingFolder}
+        onClose={() => setPickingFolder(false)}
+        title="Куда складывать результат"
+        onPick={(path) => setOutputDir(path)}
+      />
 
       {/* Нижняя панель действий */}
       <div className="space-y-2 border-t border-line-soft bg-surface px-4 py-3">

@@ -21,6 +21,39 @@ class Preset(dict):
     """Словарь вида ``{id, label, hint, kind, options}``."""
 
 
+#: Понятные названия кодеков для подписи под пресетом.
+_CODEC_NAMES = {
+    "av1_svt": "AV1",
+    "av1_nvenc": "AV1",
+    "h264": "H.264",
+    "h264_nvenc": "H.264",
+    "h265": "H.265",
+    "copy": "как есть",
+    "opus": "Opus",
+    "aac": "AAC",
+    "mp3": "MP3",
+}
+
+
+def _tech(video: dict[str, Any], audio: dict[str, Any]) -> str:
+    """Строка вида «AV1 · Opus 96k · качество 43».
+
+    Человеку не нужно знать, что такое CRF, чтобы им пользоваться, — но
+    видеть, чем один пресет отличается от другого, полезно: иначе выбор
+    между «Балансом» и «Качеством» превращается в гадание.
+    """
+    parts = [_CODEC_NAMES.get(video.get("codec", ""), video.get("codec", ""))]
+
+    sound = _CODEC_NAMES.get(audio.get("codec", ""), audio.get("codec", ""))
+    if audio.get("bitrate_kbps"):
+        sound = f"{sound} {audio['bitrate_kbps']}k"
+    parts.append(sound)
+
+    if video.get("codec") != "copy" and video.get("crf") is not None:
+        parts.append(f"качество {video['crf']}")
+    return " · ".join(parts)
+
+
 def _video(
     ident: str,
     label: str,
@@ -37,30 +70,30 @@ def _video(
     container: str = "mp4",
     accent: str = "violet",
 ) -> dict[str, Any]:
+    video = {
+        "codec": codec,
+        "crf": crf,
+        "speed_preset": speed_preset,
+        "max_height": max_height,
+        "max_fps": max_fps,
+        "tempo": 1.0,
+        "container": container,
+        "faststart": True,
+        "strip_video": False,
+    }
+    audio = {
+        "codec": audio_codec,
+        "bitrate_kbps": audio_bitrate,
+        "loudnorm": loudnorm,
+    }
     return {
         "id": ident,
         "kind": "video",
         "label": label,
         "hint": hint,
+        "tech": _tech(video, audio),
         "accent": accent,
-        "options": {
-            "video": {
-                "codec": codec,
-                "crf": crf,
-                "speed_preset": speed_preset,
-                "max_height": max_height,
-                "max_fps": max_fps,
-                "tempo": 1.0,
-                "container": container,
-                "faststart": True,
-                "strip_video": False,
-            },
-            "audio": {
-                "codec": audio_codec,
-                "bitrate_kbps": audio_bitrate,
-                "loudnorm": loudnorm,
-            },
-        },
+        "options": {"video": video, "audio": audio},
     }
 
 
@@ -128,32 +161,33 @@ def _image(
 VIDEO_PRESETS: list[dict[str, Any]] = [
     _video(
         "pack_balanced",
-        "Пак · Баланс",
-        "Рабочая лошадка для SIGame. Разницу с оригиналом видно, только если "
-        "приглядываться.",
+        "Баланс",
+        "Используется чаще всего. Даёт оптимальное сжатие практически без "
+        "потери качества.",
         crf=43,
     ),
     _video(
-        "pack_quality",
-        "Пак · Качество",
-        "Когда важна картинка: мелкий текст, детали, скриншоты игр. Файл крупнее.",
-        crf=38,
-        speed_preset="5",
-        audio_bitrate=128,
-    ),
-    _video(
         "pack_economy",
-        "Пак · Экономия",
-        "Когда пак не влезает в лимит. Артефакты заметны, но смотреть можно.",
+        "Экономия",
+        "Для экстремального сжатия. Действие и сцену разглядеть можно, "
+        "но мелкие детали плывут.",
         crf=50,
         speed_preset="8",
         audio_bitrate=64,
     ),
     _video(
+        "pack_quality",
+        "Качество",
+        "Неотличимо от исходника, но и разница в весе будет незначительной.",
+        crf=38,
+        speed_preset="5",
+        audio_bitrate=128,
+    ),
+    _video(
         "pack_h264",
-        "Пак · H.264",
-        "То же сжатие под пак, но старым кодеком — на случай, если чей-то SIGame "
-        "не проигрывает AV1. Файл примерно вдвое тяжелее.",
+        "H.264 Баланс",
+        "Наиболее стабильный кодек, он проигрывается на большинстве старых "
+        "компьютеров. Сжимает немного хуже.",
         codec="h264",
         crf=25,
         speed_preset="fast",
@@ -163,9 +197,9 @@ VIDEO_PRESETS: list[dict[str, Any]] = [
     ),
     _video(
         "remux_mp4",
-        "Перегнать в обычный MP4",
-        "Не для пака. Чинит капризные файлы — например, записи OBS, которые "
-        "тормозят в монтажке. Качество остаётся исходным, файл будет крупным.",
+        "Конвертация в MP4 (H.264)",
+        "Переводит видео в формат, понятный большинству программ и старых "
+        "компьютеров. Практически без сжатия — файл останется крупным.",
         codec="h264",
         crf=17,
         speed_preset="medium",
@@ -178,9 +212,10 @@ VIDEO_PRESETS: list[dict[str, Any]] = [
     {
         "id": "stream_copy",
         "kind": "video",
-        "label": "Без сжатия · быстрый срез",
-        "hint": "Только обрезать, ничего не перекодируя. Мгновенно, но границы среза "
-                "прыгнут к ближайшим ключевым кадрам.",
+        "label": "Без сжатия",
+        "hint": "Когда нужно обрезать видео, сохранив исходное качество. Мгновенно, "
+                "но границы среза прыгнут к ближайшим ключевым кадрам.",
+        "tech": "как есть",
         "accent": "slate",
         "options": {
             "video": {"codec": "copy", "max_height": 0, "max_fps": 0},

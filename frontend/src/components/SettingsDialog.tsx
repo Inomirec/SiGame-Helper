@@ -159,6 +159,23 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
           <div className="space-y-7">
             <Section title="Загрузка">
+              <p className="text-[11px] leading-snug text-ink-faint">
+                Настройки под конкретную ссылку — формат, качество, MP4,
+                плейлисты — живут на самой вкладке «Загрузка».
+              </p>
+
+              <Select
+                label="Брать куки из браузера"
+                value={settings.download.cookies_from_browser ?? ''}
+                onChange={(value) =>
+                  void patch({ download: { cookies_from_browser: value || null } })
+                }
+                options={[
+                  { value: '', label: 'Не использовать' },
+                  { value: 'firefox', label: 'Firefox' },
+                ]}
+                hint="Нужно для приватных, возрастных и закрытых постов, а также для YouTube. Остальные браузеры в списке нет не по недосмотру: Chrome, Edge, Vivaldi и Opera шифруют свои куки так, что прочитать их снаружи нельзя."
+              />
               <div>
                 <span className="label">Папка для скачанного</span>
                 <div className="flex gap-2">
@@ -176,46 +193,6 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                 </div>
               </div>
 
-              <Toggle
-                checked={settings.download.force_mp4}
-                onChange={(value) => void patch({ download: { force_mp4: value } })}
-                label="Всегда приводить видео к MP4"
-                hint="Гарантирует, что файл откроется во встроенном плеере со звуком."
-              />
-              <Toggle
-                checked={settings.download.embed_metadata}
-                onChange={(value) => void patch({ download: { embed_metadata: value } })}
-                label="Встраивать метаданные и обложку"
-              />
-              <Toggle
-                checked={settings.download.download_playlists}
-                onChange={(value) => void patch({ download: { download_playlists: value } })}
-                label="Скачивать плейлисты целиком"
-                hint="По умолчанию из ссылки на плейлист берётся только одно видео."
-              />
-              {settings.download.download_playlists && (
-                <NumberField
-                  label="Не больше элементов плейлиста"
-                  value={settings.download.playlist_limit}
-                  min={0}
-                  max={500}
-                  suffix="шт."
-                  onChange={(value) => void patch({ download: { playlist_limit: value } })}
-                />
-              )}
-
-              <Select
-                label="Брать куки из браузера"
-                value={settings.download.cookies_from_browser ?? ''}
-                onChange={(value) =>
-                  void patch({ download: { cookies_from_browser: value || null } })
-                }
-                options={[
-                  { value: '', label: 'Не использовать' },
-                  { value: 'firefox', label: 'Firefox' },
-                ]}
-                hint="Нужно для приватных, возрастных и закрытых постов, а также для YouTube. Остальные браузеры в списке нет не по недосмотру: Chrome, Edge, Vivaldi и Opera шифруют свои куки так, что прочитать их снаружи нельзя."
-              />
             </Section>
 
             <Section title="Прокси">

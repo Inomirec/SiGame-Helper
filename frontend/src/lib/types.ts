@@ -86,6 +86,8 @@ export interface Preset {
   kind: 'video' | 'audio' | 'image'
   label: string
   hint: string
+  /** Короткая техническая подпись: «AV1 · Opus 96k · качество 43». */
+  tech?: string
   accent: string
   available?: boolean
   options: {
