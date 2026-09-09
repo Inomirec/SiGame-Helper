@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 import logging
+import os
 import socket
 import sys
 import tempfile
@@ -130,6 +132,36 @@ def run_server(host: str, port: int, *, log_level: str = "info"):
     return server
 
 
+def _set_window_icon(window, icon: Path) -> None:
+    """Ставит окну собственную иконку.
+
+    PyWebView на Windows свой параметр ``icon`` не использует: он жёстко
+    берёт значок у ``sys.executable``, то есть у pythonw.exe. Поэтому
+    программа и показывалась среди открытых приложений как файл Python.
+
+    Меняем значок у самой формы окна. Послать окну ``WM_SETICON`` тоже
+    можно, но WinForms при следующей перерисовке возвращает свой обратно,
+    а свойство формы держится.
+    """
+    log = logging.getLogger("sigame-helper")
+    form = getattr(window, "native", None)
+    if form is None:
+        log.warning("окно ещё не создано — иконку поставить не на что")
+        return
+    try:
+        import clr  # noqa: F401 - подключает мост к .NET
+
+        clr.AddReference("System.Drawing")
+        from System import Action  # type: ignore[import-not-found]
+        from System.Drawing import Icon  # type: ignore[import-not-found]
+
+        # Свойства формы меняются только из её собственного потока.
+        form.Invoke(Action(lambda: setattr(form, "Icon", Icon(str(icon)))))
+        log.info("иконка окна установлена")
+    except Exception:
+        log.warning("не удалось поставить иконку окна", exc_info=True)
+
+
 def launch_window(url: str, port: int) -> bool:
     """Пытается открыть нативное окно. Возвращает False, если PyWebView недоступен."""
     try:
@@ -139,8 +171,26 @@ def launch_window(url: str, port: int) -> bool:
 
     from app import __version__
 
+    # Панель задач опознаёт приложение не по окну и не по .exe, а по
+    # AppUserModelID. Своего у нас не было, поэтому Windows брала личность
+    # у pythonw.exe — и его значок, сколько бы мы ни меняли иконку окна.
+    # Назначить надо до создания окна.
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "Inomirec.SiGameHelper"
+            )
+            current = ctypes.c_wchar_p()
+            ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID(
+                ctypes.byref(current)
+            )
+            logging.getLogger("sigame-helper").info(
+                "личность приложения: %s", current.value
+            )
+
+    title = f"SiGame Helper {__version__}"
     window = webview.create_window(
-        f"SiGame Helper {__version__}",
+        title,
         url,
         width=1500,
         height=940,
@@ -148,8 +198,6 @@ def launch_window(url: str, port: int) -> bool:
         background_color="#0b0d12",
         text_select=True,
     )
-    # Дополнительное окно не нужно: всё живёт на одной странице.
-    del window
 
     # Своя папка профиля вместо временной. По умолчанию pywebview открывает
     # окно «начисто»: каждый запуск заново спрашивает разрешение на доступ
@@ -161,8 +209,19 @@ def launch_window(url: str, port: int) -> bool:
     storage = data_dir() / "window"
     storage.mkdir(parents=True, exist_ok=True)
 
+    # Без своей иконки окно показывается в панели задач как файл Python.
+    icon = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+    if icon.exists() and sys.platform == "win32":
+        # Ждём штатного события: раньше показа окна ставить значок не на что.
+        window.events.shown += lambda: _set_window_icon(window, icon)
+
     try:
-        webview.start(debug=False, private_mode=False, storage_path=str(storage))
+        webview.start(
+            debug=False,
+            private_mode=False,
+            storage_path=str(storage),
+            icon=str(icon) if icon.exists() else None,
+        )
     except Exception:  # WebView2 может отсутствовать на голой системе
         logging.getLogger("sigame-helper").exception("Не удалось открыть окно приложения")
         return False

@@ -138,7 +138,20 @@ async def reveal(payload: PathRequest) -> dict[str, bool]:
         raise HTTPException(404, "Путь не найден")
     try:
         if sys.platform == "win32":
-            if target.is_dir():
+            # Через вспомогательный скрипт, а не напрямую: "explorer /select"
+            # всегда открывает НОВОЕ окно, и после проверки десятка скачанных
+            # файлов человек закрывает десяток проводников.
+            helper = Path(__file__).resolve().parents[3] / "scripts" / "reveal.ps1"
+            if helper.exists():
+                subprocess.Popen(
+                    [
+                        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                        "-WindowStyle", "Hidden", "-File", str(helper),
+                        "-Path", str(target),
+                    ],
+                    creationflags=binaries.CREATE_NO_WINDOW,
+                )
+            elif target.is_dir():
                 os.startfile(str(target))  # noqa: S606 - открытие проводника
             else:
                 subprocess.Popen(["explorer", "/select,", str(target)])

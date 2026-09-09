@@ -1,15 +1,5 @@
 import { useEffect, useState } from 'react'
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clapperboard,
-  Download,
-  FolderTree,
-  Info,
-  Settings as SettingsIcon,
-  WifiOff,
-  X,
-} from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clapperboard, Download, FolderTree, Info, Settings as SettingsIcon, WifiOff, X } from 'lucide-react'
 import { api } from './lib/api'
 import { useEvents } from './hooks/useEvents'
 import { useStore } from './store'
@@ -81,7 +71,7 @@ export default function App() {
       {/* Верхняя панель */}
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line-soft bg-surface px-4">
         <div className="flex items-center gap-2">
-          <Clapperboard size={17} className="text-accent-soft" />
+          <img src="/icon.png" alt="" className="h-[19px] w-[19px] rounded-[5px]" />
           <span className="text-[14px] font-semibold tracking-tight">SiGame Helper</span>
         </div>
 

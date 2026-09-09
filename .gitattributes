@@ -1,3 +1,11 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# Двоичные файлы git трогать не должен: перевод строк в них — это порча.
+*.exe binary
+*.ico binary
+*.png binary
+*.jpg binary
+*.avif binary
+*.webp binary

@@ -31,12 +31,20 @@ if not exist "%PY%" goto :fail
 :tools
 rem Доустанавливаем ffmpeg и Deno, чтобы пользователю не пришлось ничего
 rem искать. Метка-файл не даёт повторять проверку при каждом запуске.
-if exist ".sgh-tools-ok" goto :launch
+if exist ".sgh-tools-ok" goto :shortcut
 echo.
 echo   Проверяю ffmpeg и Deno...
 "%PY%" "backend\run.py" --setup
 if errorlevel 1 goto :toolsfail
 echo ok> ".sgh-tools-ok"
+
+
+:shortcut
+rem Один раз кладём на рабочий стол ярлык с иконкой: дальше человек
+rem запускает программу им, а не файлом с пугающим расширением.
+if exist ".sgh-shortcut" goto :launch
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\shortcut.ps1"
+echo ok> ".sgh-shortcut"
 
 
 :launch
