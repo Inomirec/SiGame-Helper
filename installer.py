@@ -2,8 +2,8 @@
 
 Он и устанавливает программу, и запускает её. Что именно делать, решает сам:
 
-* рядом лежит готовое окружение (папка ``runtime``) — молча открывает
-  программу, как обычный ярлык;
+* рядом лежит готовое окружение (папка ``runtime``, а у разработчика
+  ``.venv``) — молча открывает программу, как обычный ярлык;
 * окружения нет — показывает окно установки, спрашивает куда ставить,
   нужен ли ярлык, и только по кнопке «Установить» берётся за дело.
 
@@ -57,9 +57,20 @@ def payload_dir() -> Path:
     return Path(bundled) if bundled else here
 
 
-def ready_here() -> bool:
-    """Программа уже установлена рядом с нами?"""
-    return (own_dir() / "runtime" / ".ready").exists()
+def installed_python(folder: Path) -> Path | None:
+    """Готовый Python рядом с программой, если он есть.
+
+    Обычно это папка ``runtime``, которую делает установка. Но в папке
+    разработчика её нет, зато есть ``.venv`` — и запускать надо оттуда,
+    иначе разработчику каждый раз предлагают «установить» уже готовое.
+    """
+    runtime = folder / "runtime" / "pythonw.exe"
+    if (folder / "runtime" / ".ready").exists() and runtime.exists():
+        return runtime
+    venv = folder / ".venv" / "Scripts" / "pythonw.exe"
+    if venv.exists():
+        return venv
+    return None
 
 
 def default_target() -> Path:
@@ -89,9 +100,9 @@ def child_env() -> dict[str, str]:
 
 def start_app(folder: Path) -> None:
     """Открывает саму программу."""
+    python = installed_python(folder) or folder / "runtime" / "pythonw.exe"
     subprocess.Popen(
-        [str(folder / "runtime" / "pythonw.exe"),
-         str(folder / "backend" / "run.py"), "--window"],
+        [str(python), str(folder / "backend" / "run.py"), "--window"],
         cwd=str(folder),
         creationflags=CREATE_NO_WINDOW,
     )
@@ -542,7 +553,7 @@ class Wizard:
 
 def main() -> int:
     # Программа уже стоит рядом — значит нас позвали как обычный ярлык.
-    if ready_here():
+    if installed_python(own_dir()):
         start_app(own_dir())
         return 0
 

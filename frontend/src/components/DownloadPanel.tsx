@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ClipboardPaste,
   Download,
@@ -65,7 +65,25 @@ export function DownloadPanel() {
   const ytdlpReady = status?.tools['yt-dlp']?.available ?? false
   const galleryReady = status?.tools['gallery-dl']?.available ?? false
 
-  const allPresets = [...(presets.video ?? []), ...(presets.audio ?? []), ...(presets.image ?? [])]
+  // Показываем только те пресеты, которые подходят к выбранному типу
+  // загрузки: выбрав «Кадры», человек раньше видел в списке сжатие видео
+  // и звука, выбирал его — и не понимал, почему ничего не происходит.
+  const autoPresets =
+    mode === 'images'
+      ? (presets.image ?? [])
+      : mode === 'audio'
+        ? (presets.audio ?? [])
+        : mode === 'video'
+          ? (presets.video ?? [])
+          : [...(presets.video ?? []), ...(presets.audio ?? []), ...(presets.image ?? [])]
+
+  // Сменили тип — выбранный пресет мог стать неподходящим, снимаем его.
+  useEffect(() => {
+    if (autoPreset && !autoPresets.some((preset) => preset.id === autoPreset)) {
+      setAutoPreset('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode])
 
   function patchRow(id: number, patch: Partial<Row>) {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)))
@@ -132,6 +150,26 @@ export function DownloadPanel() {
       toast('Вставьте хотя бы одну ссылку', 'error')
       return
     }
+
+    // Одна ссылка на пост с несколькими вложениями — сначала спрашиваем,
+    // что именно скачивать. Для пачки ссылок так делать нельзя: человек
+    // утонет в окнах выбора, поэтому там качаем всё.
+    if (filled.length === 1 && galleryReady && mode !== 'video' && mode !== 'audio') {
+      setProbing(true)
+      try {
+        const found = await api.probeGallery(filled[0].url.trim())
+        if (found.items.length > 1) {
+          setGallery({ url: found.url, items: found.items })
+          setPicked(found.items.map((item) => item.index))
+          return
+        }
+      } catch {
+        // Не пост с картинками — качаем обычным путём.
+      } finally {
+        setProbing(false)
+      }
+    }
+
     setBusy(true)
     try {
       const result = await api.download({
@@ -158,6 +196,10 @@ export function DownloadPanel() {
   }
 
   async function loadGallery(url: string) {
+    // Старый список убираем сразу: иначе он висит на экране, пока грузится
+    // новый, и кажется, что кнопка не сработала.
+    setGallery(null)
+    setPicked([])
     setProbing(true)
     try {
       const result = await api.probeGallery(url)
@@ -338,7 +380,7 @@ export function DownloadPanel() {
           />
         ) : (
           <Select
-            label="Максимальное качество"
+            label="Качество"
             value={String(maxHeight)}
             onChange={(value) => setMaxHeight(Number(value))}
             options={[
@@ -358,7 +400,7 @@ export function DownloadPanel() {
           onChange={setAutoPreset}
           options={[
             { value: '', label: 'Не сжимать — просто скачать' },
-            ...allPresets.map((preset) => ({ value: preset.id, label: preset.label })),
+            ...autoPresets.map((preset) => ({ value: preset.id, label: preset.label })),
           ]}
           hint="Скачанный файл автоматически уйдёт в очередь обработки с этим пресетом."
         />

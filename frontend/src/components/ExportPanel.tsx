@@ -70,6 +70,14 @@ export function ExportPanel({
   const [audio, setAudio] = useState<AudioOptions>(DEFAULT_AUDIO)
   const [streamCopy, setStreamCopy] = useState(false)
   const [suffix, setSuffix] = useState('_sig')
+
+  // Приписка к имени по основным пресетам: в папке потом сразу видно, чем
+  // сжимали, — иначе три версии одного ролика различаются только весом.
+  const PRESET_SUFFIX: Record<string, string> = {
+    pack_balanced: '_баланс',
+    pack_quality: '_качество',
+    pack_economy: '_экономия',
+  }
   const [busy, setBusy] = useState(false)
   const [command, setCommand] = useState<string | null>(null)
 
@@ -108,6 +116,12 @@ export function ExportPanel({
       } as AudioOptions))
     }
     setStreamCopy(Boolean(preset.options.stream_copy))
+    // Имя, которое человек уже поправил руками, не трогаем.
+    setSuffix((current) =>
+      current === '_sig' || Object.values(PRESET_SUFFIX).includes(current)
+        ? PRESET_SUFFIX[preset.id] ?? '_sig'
+        : current,
+    )
   }
 
   const activePreset = kindPresets.find((preset) => preset.id === presetId)

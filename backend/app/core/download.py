@@ -167,6 +167,9 @@ def build_ytdlp_args(
         "--ignore-config",
         # Windows не любит длинные имена и запрещённые символы.
         "--windows-filenames",
+        # Время файла — момент скачивания, а не дата публикации ролика:
+        # иначе в папке, отсортированной по времени, его не найти.
+        "--no-mtime",
         "--trim-filenames", "180",
         # Фильтры провайдеров чаще не блокируют наглухо, а «подвешивают»
         # соединение: одна попытка из нескольких проходит. Поэтому лучше
@@ -518,7 +521,10 @@ async def probe_gallery(url: str) -> list[dict[str, Any]]:
 
 def _gallery_common_args() -> list[str]:
     settings = config.load().download
-    args: list[str] = []
+    # Без --no-mtime файлу ставится дата публикации поста, и в «Загрузках»,
+    # отсортированных по времени, свежескачанное уезжает куда-то в прошлую
+    # неделю. Человек ищет его и не находит.
+    args: list[str] = ["--no-mtime"]
     if settings.proxy_enabled and settings.proxy:
         args += ["--proxy", settings.proxy]
     if settings.cookies_from_browser:
