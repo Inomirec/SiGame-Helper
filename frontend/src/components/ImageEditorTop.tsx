@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Brush, Crop, Eraser, Eye, Square, Trash2, Undo2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Brush, Crop, Eraser, Eye, Maximize2, Square, Trash2, Undo2 } from 'lucide-react'
 import { mediaUrl } from '../lib/api'
 import { humanSize } from '../lib/format'
 import type { FileInfo, Rect, Stroke } from '../lib/types'
@@ -35,14 +35,124 @@ export function ImageEditor({
   const [history, setHistory] = useState<ImageEdit[]>([])
   const [brushSize, setBrushSize] = useState(40)
 
+  // Масштаб и сдвиг картинки. Сдвиг — в экранных пикселях: так его проще
+  // удержать, когда масштаб меняется прямо под курсором.
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [panning, setPanning] = useState(false)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const spaceRef = useRef(false)
+  const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
+  // Обработчик колеса живёт вне React, поэтому текущие значения берём из ссылок.
+  const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } })
+  viewRef.current = { zoom, pan }
+
   const media = file.media
   const natural = { width: media?.width ?? 0, height: media?.height ?? 0 }
+
+  const resetView = useCallback(() => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }, [])
 
   useEffect(() => {
     setTool('box')
     setSelection(null)
     setHistory([])
-  }, [file.path])
+    resetView()
+  }, [file.path, resetView])
+
+  // Колесо приближает к курсору, а не к центру: иначе нужная деталь уезжает
+  // за край ровно в тот момент, когда её пытаешься рассмотреть.
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      const box = viewport.getBoundingClientRect()
+      // Курсор относительно центра: вокруг него и построено преобразование.
+      const mx = event.clientX - (box.left + box.width / 2)
+      const my = event.clientY - (box.top + box.height / 2)
+
+      const { zoom: current, pan: offset } = viewRef.current
+      const next = Math.min(16, Math.max(1, current * (event.deltaY < 0 ? 1.2 : 1 / 1.2)))
+      if (next === current) return
+      const ratio = next / current
+
+      setZoom(next)
+      setPan(
+        next === 1
+          ? { x: 0, y: 0 }
+          : { x: mx - ratio * (mx - offset.x), y: my - ratio * (my - offset.y) },
+      )
+    }
+
+    viewport.addEventListener('wheel', onWheel, { passive: false })
+    return () => viewport.removeEventListener('wheel', onWheel)
+  }, [])
+
+  // Пробел — временный режим руки: левая кнопка занята кистью и рамками.
+  useEffect(() => {
+    const down = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      if (event.code !== 'Space') return
+      // Иначе пробел нажмёт кнопку, на которой остался фокус, и прокрутит страницу.
+      event.preventDefault()
+      spaceRef.current = true
+      setSpaceHeld(true)
+    }
+    const up = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return
+      spaceRef.current = false
+      setSpaceHeld(false)
+    }
+    // Переключение окна оставляет пробел «залипшим» — сбрасываем.
+    const blur = () => {
+      spaceRef.current = false
+      setSpaceHeld(false)
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', blur)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!panning) return
+    const move = (event: PointerEvent) => {
+      const start = panRef.current
+      if (!start) return
+      setPan({ x: start.px + (event.clientX - start.x), y: start.py + (event.clientY - start.y) })
+    }
+    const stop = () => {
+      panRef.current = null
+      setPanning(false)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+  }, [panning])
+
+  const startPan = (event: React.PointerEvent) => {
+    // Средняя кнопка — всегда рука, левая — только с зажатым пробелом.
+    if (event.button !== 1 && !(event.button === 0 && spaceRef.current)) return
+    event.preventDefault()
+    event.stopPropagation()
+    panRef.current = { x: event.clientX, y: event.clientY, px: pan.x, py: pan.y }
+    setPanning(true)
+  }
 
   /** Запоминает текущее состояние, чтобы Ctrl+Z вернул именно его. */
   const commit = useCallback(() => {
@@ -95,7 +205,18 @@ export function ImageEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-[#0e1016] p-4 ring-1 ring-line-soft">
+      <div
+        ref={viewportRef}
+        className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-[#0e1016] p-4 ring-1 ring-line-soft ${
+          panning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : ''
+        }`}
+        onPointerDown={startPan}
+        // Без этого средняя кнопка включает автопрокрутку вместо руки.
+        onAuxClick={(event) => event.preventDefault()}
+        onDoubleClick={() => {
+          if (tool === 'view' || spaceRef.current) resetView()
+        }}
+      >
         {/* Шахматка под прозрачными картинками */}
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.035]"
@@ -107,8 +228,17 @@ export function ImageEditor({
           }}
         />
 
-        {/* Обёртка обтягивает картинку, поэтому наложения совпадают с ней точно */}
-        <div className="relative">
+        {/* Обёртка обтягивает картинку, поэтому наложения совпадают с ней точно.
+            Масштаб задан ей целиком — разметка правок едет вместе с картинкой,
+            и пересчитывать координаты не нужно. Переменная --z отдана вниз:
+            по ней рамки и маркеры ужимаются обратно, чтобы не пухли при зуме. */}
+        <div
+          className="relative"
+          style={{
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            '--z': zoom,
+          } as React.CSSProperties}
+        >
           <img
             key={file.path}
             src={mediaUrl(file.path)}
@@ -119,6 +249,11 @@ export function ImageEditor({
           />
 
           {natural.width > 0 && (
+            <div
+              className="absolute inset-0"
+              // Пока двигают картинку, инструменты не должны ловить нажатия.
+              style={{ pointerEvents: spaceHeld || panning ? 'none' : undefined }}
+            >
             <RectCanvas
               width={natural.width}
               height={natural.height}
@@ -135,6 +270,7 @@ export function ImageEditor({
               onStrokesChange={(strokes) => onEditChange({ ...edit, strokes })}
               onCommit={commit}
             />
+            </div>
           )}
         </div>
       </div>
@@ -173,6 +309,20 @@ export function ImageEditor({
             <span className="w-8 font-mono tabular-nums text-ink">{brushSize}</span>
           </label>
         )}
+
+        <button
+          type="button"
+          onClick={resetView}
+          disabled={zoom === 1 && pan.x === 0 && pan.y === 0}
+          title="Вернуть картинку в исходное положение. Колесо — приблизить, средняя кнопка или пробел — двигать"
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors hover:bg-surface-3 hover:text-ink-dim disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <Maximize2 size={12} />
+          Вписать
+          <span className="w-9 text-right font-mono tabular-nums text-ink">
+            {Math.round(zoom * 100)}%
+          </span>
+        </button>
 
         <button
           type="button"

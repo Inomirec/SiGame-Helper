@@ -285,7 +285,7 @@ export function RectCanvas({
       ref={shellRef}
       className={`absolute inset-0 ${tool === 'view' ? '' : 'cursor-crosshair'}`}
       onPointerDown={(event) => {
-        if (tool === 'view') return
+        if (tool === 'view' || event.button !== 0) return
         onSelect(null)
         onCommit()
 
@@ -324,17 +324,27 @@ export function RectCanvas({
       {crop && (
         <div
           className={`absolute ${
-            isSelected({ type: 'crop' }) ? 'ring-2 ring-accent' : 'ring-2 ring-accent/60'
+            isSelected({ type: 'crop' }) ? 'outline-accent' : 'outline-accent/60'
           } ${tool === 'view' ? '' : 'cursor-move'}`}
-          style={{ ...asStyle(crop), boxShadow: '0 0 0 9999px rgba(0,0,0,0.6)' }}
+          // Толщину делим на масштаб: иначе при увеличении рамка превращается
+          // в жирную полосу и закрывает то, что человек пришёл рассмотреть.
+          style={{
+            ...asStyle(crop),
+            outlineStyle: 'solid',
+            outlineWidth: 'calc(2px / var(--z, 1))',
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.6)',
+          }}
           onPointerDown={(event) => {
-            if (tool === 'view') return
+            if (tool === 'view' || event.button !== 0) return
             onSelect({ type: 'crop' })
             onCommit()
             begin(event, { grip: 'move', target: { type: 'crop' }, origin: crop, creating: false })
           }}
         >
-          <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-accent px-1.5 text-[10px] font-medium text-white">
+          <span
+            className="pointer-events-none absolute bottom-full left-0 mb-0.5 origin-bottom-left whitespace-nowrap rounded bg-accent px-1.5 text-[10px] font-medium text-white"
+            style={{ transform: 'scale(calc(1 / var(--z, 1)))' }}
+          >
             обрезка {crop.width}×{crop.height}
           </span>
           {isSelected({ type: 'crop' }) &&
@@ -364,11 +374,15 @@ export function RectCanvas({
           <div
             key={index}
             className={`absolute bg-black ${
-              selected ? 'ring-2 ring-accent' : 'ring-1 ring-white/25 hover:ring-white/60'
+              selected ? 'outline-accent' : 'outline-white/25 hover:outline-white/60'
             } ${tool === 'view' ? '' : 'cursor-move'}`}
-            style={asStyle(box)}
+            style={{
+              ...asStyle(box),
+              outlineStyle: 'solid',
+              outlineWidth: `calc(${selected ? 2 : 1}px / var(--z, 1))`,
+            }}
             onPointerDown={(event) => {
-              if (tool === 'view') return
+              if (tool === 'view' || event.button !== 0) return
               onSelect({ type: 'box', index })
               onCommit()
               begin(event, {
@@ -404,9 +418,13 @@ export function RectCanvas({
       {draft && (
         <div
           className={`pointer-events-none absolute ${
-            tool === 'crop' ? 'ring-2 ring-accent' : 'bg-black/75 ring-1 ring-white/40'
+            tool === 'crop' ? 'outline-accent' : 'bg-black/75 outline-white/40'
           }`}
-          style={asStyle(draft)}
+          style={{
+            ...asStyle(draft),
+            outlineStyle: 'solid',
+            outlineWidth: `calc(${tool === 'crop' ? 2 : 1}px / var(--z, 1))`,
+          }}
         />
       )}
     </div>
@@ -422,10 +440,13 @@ function GripDot({
 }) {
   return (
     <span
-      className="absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-[2px] border border-base bg-accent"
+      className="absolute z-10 h-3 w-3 rounded-[2px] border border-base bg-accent"
+      // Маркер ужимаем обратно по масштабу: иначе при увеличении он закрывает
+      // собой тот угол, за который его и тянут.
       style={{
         left: `${grip.x * 100}%`,
         top: `${grip.y * 100}%`,
+        transform: 'translate(-50%, -50%) scale(calc(1 / var(--z, 1)))',
         cursor: grip.cursor,
       }}
       onPointerDown={onPointerDown}
