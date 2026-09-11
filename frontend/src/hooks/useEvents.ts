@@ -55,6 +55,12 @@ export function useEvents() {
           break
         }
 
+        case 'file.open':
+          // Файл, брошенный на ярлык программы или открытый через
+          // «Открыть с помощью». Путь пришёл от Windows, а не от страницы.
+          void store.openExternal(payload.data.path as string)
+          break
+
         case 'library.changed':
           scheduleLibraryRefresh()
           break

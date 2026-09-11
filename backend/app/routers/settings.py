@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import config
 from ..core import binaries
+from ..core.events import bus
 from ..models import PathRequest, SettingsPatch
 from ..paths import default_workspace
 
@@ -39,6 +40,28 @@ async def patch_settings(patch: SettingsPatch) -> dict[str, Any]:
     data = settings.model_dump(mode="json")
     data["resolvedWorkspace"] = settings.resolved_workspace()
     return data
+
+
+@router.post("/open-file")
+async def open_file(payload: PathRequest) -> dict[str, Any]:
+    """Открывает файл в интерфейсе — им пользуется запуск с путём в аргументах.
+
+    Так работает «перетащить файл на ярлык» и «Открыть с помощью»: Windows
+    передаёт путь программе, а она просит интерфейс показать этот файл.
+    """
+    path = Path(payload.path).expanduser()
+    if not path.exists():
+        raise HTTPException(404, "Файл не найден")
+
+    # Файл может лежать где угодно, а программа работает внутри рабочих папок.
+    settings = config.load()
+    folder = str(path.parent.resolve())
+    if folder not in settings.workspaces:
+        settings.workspaces = [folder, *settings.workspaces][:8]
+        config.save(settings)
+
+    bus.publish("file.open", {"path": str(path.resolve())})
+    return {"ok": True}
 
 
 @router.post("/workspaces/add")

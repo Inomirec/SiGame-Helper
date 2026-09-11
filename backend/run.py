@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import ctypes
+import json
 import logging
 import os
 import socket
@@ -162,6 +163,60 @@ def _set_window_icon(window, icon: Path) -> None:
         log.warning("не удалось поставить иконку окна", exc_info=True)
 
 
+#: Подписка на перетаскивание живёт ровно один раз: страница у нас одна,
+#: а событие «страница загрузилась» приходит и при обновлении окна.
+_drop_ready = False
+
+
+def _enable_file_drop(window) -> None:
+    """Учит окно принимать файлы, перетащенные из проводника.
+
+    Сама страница видит у брошенного файла только имя: путей браузеры не
+    отдают из соображений безопасности. Зато WebView2 умеет передать окну
+    вместе с броском и сами файлы — на этом построен штатный обработчик
+    ``drop`` в pywebview, где у каждого файла есть настоящий путь
+    (``pywebviewFullPath``).
+
+    Трогать ``AllowExternalDrop`` у браузера нельзя: стоит забрать
+    перетаскивание у страницы, и Windows рисует перечёркнутый курсор — бросок
+    не доходит уже ни до кого. Ровно так мы и сломали это в прошлый раз.
+    """
+    global _drop_ready
+
+    log = logging.getLogger("sigame-helper")
+    if _drop_ready:
+        return
+
+    def on_drop(event) -> None:
+        """Достаёт пути и отдаёт их странице обычным событием."""
+        try:
+            files = (event or {}).get("dataTransfer", {}).get("files") or []
+            paths = [
+                file["pywebviewFullPath"]
+                for file in files
+                if isinstance(file, dict) and file.get("pywebviewFullPath")
+            ]
+            log.info("перетащено файлов: %s из %s", len(paths), len(files))
+            if not paths:
+                return
+            payload = json.dumps(paths, ensure_ascii=False)
+            window.evaluate_js(
+                "window.dispatchEvent(new CustomEvent('sgh:drop',"
+                f" {{ detail: {payload} }}))"
+            )
+        except Exception:
+            log.warning("не удалось принять перетащенные файлы", exc_info=True)
+
+    try:
+        from webview.dom import DOMEventHandler
+
+        window.dom.document.events.drop += DOMEventHandler(on_drop, prevent_default=True)
+        _drop_ready = True
+        log.info("перетаскивание файлов включено")
+    except Exception:
+        log.warning("перетаскивание файлов включить не удалось", exc_info=True)
+
+
 def launch_window(url: str, port: int) -> bool:
     """Пытается открыть нативное окно. Возвращает False, если PyWebView недоступен."""
     try:
@@ -214,6 +269,10 @@ def launch_window(url: str, port: int) -> bool:
     if icon.exists() and sys.platform == "win32":
         # Ждём штатного события: раньше показа окна ставить значок не на что.
         window.events.shown += lambda: _set_window_icon(window, icon)
+
+    # Перетаскивание файлов из проводника. Ждём именно загрузки страницы:
+    # обработчик вешается на её document, а до этого вешать не на что.
+    window.events.loaded += lambda: _enable_file_drop(window)
 
     try:
         webview.start(
@@ -294,6 +353,25 @@ def bootstrap_tools() -> int:
     return 1 if failures else 0
 
 
+def ask_running_instance(host: str, port: int, path: str) -> bool:
+    """Просит уже открытую программу показать файл. False — она не запущена."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    payload = json.dumps({"path": path}).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://{host}:{port}/api/settings/open-file",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            return response.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="SiGame Helper")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -305,10 +383,17 @@ def main() -> int:
         "--setup", action="store_true", help="доустановить недостающие инструменты и выйти"
     )
     parser.add_argument("--log-level", default="info")
+    # Windows передаёт путь так, когда файл бросают на ярлык программы
+    # или открывают его через «Открыть с помощью».
+    parser.add_argument("path", nargs="?", help="файл, который нужно открыть")
     args = parser.parse_args()
 
     if args.setup:
         return bootstrap_tools()
+
+    # Программа уже открыта — не поднимаем вторую, а просим показать файл.
+    if args.path and ask_running_instance(args.host, args.port, args.path):
+        return 0
 
     from app.paths import is_frozen
 
@@ -329,6 +414,9 @@ def main() -> int:
     if not wait_until_up(args.host, port):
         print("Сервер не запустился. Смотрите сообщения выше.", file=sys.stderr)
         return 1
+
+    if args.path:
+        ask_running_instance(args.host, port, args.path)
 
     from app import __version__
 

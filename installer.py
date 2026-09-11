@@ -98,11 +98,15 @@ def child_env() -> dict[str, str]:
     return env
 
 
-def start_app(folder: Path) -> None:
-    """Открывает саму программу."""
+def start_app(folder: Path, extra: list[str] | None = None) -> None:
+    """Открывает саму программу, передавая ей наши аргументы.
+
+    Когда файл бросают на ярлык программы, Windows отдаёт его путь нам —
+    и без передачи дальше он бы просто потерялся.
+    """
     python = installed_python(folder) or folder / "runtime" / "pythonw.exe"
     subprocess.Popen(
-        [str(python), str(folder / "backend" / "run.py"), "--window"],
+        [str(python), str(folder / "backend" / "run.py"), "--window", *(extra or [])],
         cwd=str(folder),
         creationflags=CREATE_NO_WINDOW,
     )
@@ -554,7 +558,8 @@ class Wizard:
 def main() -> int:
     # Программа уже стоит рядом — значит нас позвали как обычный ярлык.
     if installed_python(own_dir()):
-        start_app(own_dir())
+        # Пути файлов, брошенных на ярлык, передаём программе как есть.
+        start_app(own_dir(), [arg for arg in sys.argv[1:] if not arg.startswith("-")])
         return 0
 
     Wizard().run()

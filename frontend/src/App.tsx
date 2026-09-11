@@ -30,6 +30,8 @@ export default function App() {
   const toasts = useStore((state) => state.toasts)
   const dismissToast = useStore((state) => state.dismissToast)
   const refreshLibrary = useStore((state) => state.refreshLibrary)
+  const openExternal = useStore((state) => state.openExternal)
+  const toast = useStore((state) => state.toast)
   const refreshSettings = useStore((state) => state.refreshSettings)
 
   const [tab, setTab] = useState<Tab>('library')
@@ -42,6 +44,38 @@ export default function App() {
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  // Файлы, перетащенные из проводника. Путь приходит от окна программы:
+  // сама страница его не видит, браузеры путей не отдают.
+  useEffect(() => {
+    const onDrop = (event: Event) => {
+      const paths = (event as CustomEvent<string[]>).detail
+      if (!Array.isArray(paths) || !paths.length) return
+      setTab('library')
+      void openExternal(paths[0])
+      if (paths.length > 1) {
+        toast(`Открыт первый файл из ${paths.length} — остальные ищите в медиатеке`, 'info')
+      }
+    }
+    // Пока окно не сказало «беру», Windows рисует перечёркнутый курсор и
+    // события броска не будет вовсе. Плюс без этого браузер просто откроет
+    // файл вместо страницы.
+    const allow = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    }
+    window.addEventListener('sgh:drop', onDrop)
+    document.addEventListener('dragenter', allow)
+    document.addEventListener('dragover', allow)
+    document.addEventListener('drop', allow)
+    return () => {
+      window.removeEventListener('sgh:drop', onDrop)
+      document.removeEventListener('dragenter', allow)
+      document.removeEventListener('dragover', allow)
+      document.removeEventListener('drop', allow)
+    }
+  }, [openExternal, toast])
 
   // Метки In/Out и правки кадра привязаны к конкретному файлу — при смене сбрасываем.
   useEffect(() => {

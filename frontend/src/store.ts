@@ -53,6 +53,8 @@ interface State {
   openFolder: (path: string | null) => void
   setFlat: (flat: boolean) => void
   select: (path: string | null) => Promise<void>
+  /** Открывает файл, перетащенный из проводника, даже если он вне рабочих папок. */
+  openExternal: (path: string) => Promise<void>
   toggleCheck: (path: string, additive?: boolean) => void
   setChecked: (paths: string[]) => void
   clearChecked: () => void
@@ -191,6 +193,29 @@ export const useStore = create<State>((set, get) => ({
     localStorage.setItem('sgh.flatLibrary', flat ? '1' : '0')
     set({ flat })
     void get().refreshLibrary()
+  },
+
+  async openExternal(path) {
+    // Файл может лежать где угодно, а программа работает только внутри
+    // рабочих папок. Поэтому сначала пробуем открыть как есть, и лишь если
+    // не пустило — добавляем его папку в рабочие.
+    try {
+      await api.fileInfo(path)
+    } catch {
+      // Без регулярки: в путях Windows обратный слэш, и экранирование
+      // в нём слишком легко потерять.
+      const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+      const folder = cut > 0 ? path.slice(0, cut) : path
+      try {
+        await api.addWorkspace(folder)
+        await get().refreshSettings()
+        await get().refreshLibrary()
+      } catch (error) {
+        get().toast((error as Error).message, 'error')
+        return
+      }
+    }
+    await get().select(path)
   },
 
   async select(path) {
