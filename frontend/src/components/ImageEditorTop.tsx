@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Brush, Crop, Eraser, Eye, Maximize2, Square, Trash2, Undo2 } from 'lucide-react'
 import { mediaUrl } from '../lib/api'
 import { humanSize } from '../lib/format'
-import type { FileInfo, Rect, Stroke } from '../lib/types'
+import type { FileInfo, ImagePreview, Rect, Stroke } from '../lib/types'
 import { RectCanvas, type Selection, type Tool } from './RectCanvas'
 import { Segmented } from './ui'
 
@@ -24,12 +24,16 @@ export const emptyImageEdit: ImageEdit = { crop: null, boxes: [], strokes: [] }
 export function ImageEditor({
   file,
   edit,
+  preview,
   onEditChange,
 }: {
   file: FileInfo
   edit: ImageEdit
+  /** Просчитанный результат сжатия — то, что покажет кнопка «После». */
+  preview?: ImagePreview | null
   onEditChange: (edit: ImageEdit) => void
 }) {
+  const [showAfter, setShowAfter] = useState(false)
   const [tool, setTool] = useState<Tool>('box')
   const [selection, setSelection] = useState<Selection>(null)
   const [history, setHistory] = useState<ImageEdit[]>([])
@@ -61,7 +65,12 @@ export function ImageEditor({
     setSelection(null)
     setHistory([])
     resetView()
+    setShowAfter(false)
   }, [file.path, resetView])
+
+  useEffect(() => {
+    if (!preview) setShowAfter(false)
+  }, [preview])
 
   // Колесо приближает к курсору, а не к центру: иначе нужная деталь уезжает
   // за край ровно в тот момент, когда её пытаешься рассмотреть.
@@ -248,7 +257,19 @@ export function ImageEditor({
             style={{ maxHeight: 'calc(100vh - 330px)' }}
           />
 
-          {natural.width > 0 && (
+          {/* Результат сжатия кладём поверх оригинала в ту же рамку: масштаб и
+              положение общие, поэтому «до» и «после» можно щёлкать, разглядывая
+              одну и ту же деталь. Правки уже вжжены в него, инструменты прячем. */}
+          {showAfter && preview && (
+            <img
+              src={preview.url}
+              alt="после сжатия"
+              className="absolute inset-0 h-full w-full select-none object-contain"
+              draggable={false}
+            />
+          )}
+
+          {natural.width > 0 && !showAfter && (
             <div
               className="absolute inset-0"
               // Пока двигают картинку, инструменты не должны ловить нажатия.
@@ -273,6 +294,31 @@ export function ImageEditor({
             </div>
           )}
         </div>
+
+        {preview && (
+          <div className="absolute bottom-3 left-3 flex overflow-hidden rounded-lg ring-1 ring-line-soft">
+            {[
+              { value: false, label: 'До', size: file.size },
+              { value: true, label: 'После', size: preview.size },
+            ].map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => setShowAfter(item.value)}
+                className={`px-2.5 py-1 text-[11px] transition-colors ${
+                  showAfter === item.value
+                    ? 'bg-accent text-white'
+                    : 'bg-surface/90 text-ink-faint hover:text-ink-dim'
+                }`}
+              >
+                {item.label}
+                <span className="ml-1.5 font-mono tabular-nums opacity-70">
+                  {humanSize(item.size)}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Инструменты */}

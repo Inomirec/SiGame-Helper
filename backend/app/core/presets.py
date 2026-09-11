@@ -133,17 +133,23 @@ def _image(
     hint: str,
     *,
     fmt: str = "avif",
-    target_kb: int | None = 100,
+    target_kb: int | None = None,
     quality: int = 80,
     max_dimension: int = 1920,
     effort: int = 4,
     accent: str = "amber",
 ) -> dict[str, Any]:
+    names = {"avif": "AVIF", "webp": "WebP", "jpg": "JPEG", "png": "PNG"}
+    tech = [names.get(fmt, fmt.upper()), f"качество {quality}"]
+    if max_dimension:
+        tech.append(f"до {max_dimension} px")
+
     return {
         "id": ident,
         "kind": "image",
         "label": label,
         "hint": hint,
+        "tech": " · ".join(tech),
         "accent": accent,
         "options": {
             "image": {
@@ -256,59 +262,26 @@ AUDIO_PRESETS: list[dict[str, Any]] = [
 
 IMAGE_PRESETS: list[dict[str, Any]] = [
     _image(
-        "avif_light",
-        "AVIF · Лёгкое сжатие",
-        "Картинка почти не отличается от оригинала. Для схем, карт и скриншотов "
-        "с мелким текстом.",
-        target_kb=300,
-        max_dimension=1920,
+        "avif_recommended",
+        "Рекомендуемое сжатие",
+        "Подходит почти всегда: постеры, кадры, фотографии, схемы. "
+        "Разницу на глаз почти не видно.",
+        quality=94,
+        max_dimension=1600,
         effort=4,
     ),
     _image(
-        "avif_medium",
-        "AVIF · Среднее сжатие",
-        "Рабочий вариант для большинства вопросов: постеры, кадры, фотографии. "
-        "Разницу на глаз почти не видно.",
-        target_kb=120,
-        max_dimension=1600,
-        effort=3,
-    ),
-    _image(
-        "avif_extreme",
-        "AVIF · Экстремальное сжатие",
-        "Когда пак не влезает в лимит. Картинка заметно мягче, но узнаваема.",
-        target_kb=50,
-        max_dimension=1280,
-        effort=2,
-    ),
-    _image(
-        "webp_q85",
-        "WebP",
-        "Для сайтов и программ, которые ещё не переварили AVIF.",
-        fmt="webp",
-        target_kb=None,
-        quality=85,
-        accent="sky",
-    ),
-    _image(
-        "jpg_q85",
+        "jpeg_compatible",
         "JPEG",
-        "Универсальный вариант на все случаи жизни.",
+        "Когда важнее совместимость: JPEG открывает вообще всё, "
+        "включая предпросмотр в редакторе пака.",
         fmt="jpg",
-        target_kb=None,
         quality=85,
+        max_dimension=1600,
         accent="sky",
-    ),
-    _image(
-        "png_lossless",
-        "PNG без потерь",
-        "Только ресайз, без потери качества. Для пиксель-арта и прозрачности.",
-        fmt="png",
-        target_kb=None,
-        max_dimension=0,
-        accent="slate",
     ),
 ]
+
 
 ALL: list[dict[str, Any]] = VIDEO_PRESETS + AUDIO_PRESETS + IMAGE_PRESETS
 _BY_ID = {preset["id"]: preset for preset in ALL}

@@ -7,6 +7,7 @@ import { DownloadPanel } from './components/DownloadPanel'
 import { ExportPanel } from './components/ExportPanel'
 import { FolderPicker } from './components/FolderPicker'
 import { ImageEditor, ImagePanel, emptyImageEdit, type ImageEdit } from './components/ImageEditor'
+import type { ImagePreview } from './lib/types'
 import { JobQueue } from './components/JobQueue'
 import { MediaEditor, type TrimState } from './components/MediaEditor'
 import { emptyFades, type Fades } from './components/Timeline'
@@ -39,6 +40,8 @@ export default function App() {
   const [workspacePicker, setWorkspacePicker] = useState(false)
   const [trim, setTrim] = useState<TrimState>({ in: null, out: null })
   const [imageEdit, setImageEdit] = useState<ImageEdit>(emptyImageEdit)
+  // Превью считает панель справа, а показывает холст слева — состояние общее.
+  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null)
   const [fades, setFades] = useState<Fades>(emptyFades)
 
   useEffect(() => {
@@ -169,7 +172,12 @@ export default function App() {
           ) : activeInfo ? (
             <div className="h-full p-4">
               {activeInfo.kind === 'image' ? (
-                <ImageEditor file={activeInfo} edit={imageEdit} onEditChange={setImageEdit} />
+                <ImageEditor
+                  file={activeInfo}
+                  edit={imageEdit}
+                  preview={imagePreview}
+                  onEditChange={setImageEdit}
+                />
               ) : (
                 <MediaEditor
                   file={activeInfo}
@@ -193,7 +201,12 @@ export default function App() {
         {tab === 'library' && activeInfo && (
           <aside className="flex w-[340px] shrink-0 flex-col border-l border-line-soft bg-surface">
             {activeInfo.kind === 'image' ? (
-              <ImagePanel key={activeInfo.path} file={activeInfo} edit={imageEdit} />
+              <ImagePanel
+                key={activeInfo.path}
+                file={activeInfo}
+                edit={imageEdit}
+                onPreview={setImagePreview}
+              />
             ) : (
               <ExportPanel key={activeInfo.path} file={activeInfo} trim={trim} fades={fades} />
             )}

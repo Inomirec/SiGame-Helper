@@ -104,6 +104,12 @@ export const api = {
     post<Job>('/api/export/raw', { command, source }),
   exportBatch: (items: unknown[]) =>
     post<{ jobs: Job[]; errors: { source: string; error: string }[] }>('/api/export/batch', { items }),
+  imagePreview: (payload: unknown) =>
+    post<{ url: string; size: number; width: number; height: number }>(
+      '/api/media/image-preview',
+      payload,
+    ),
+
   exportPreview: (payload: unknown) =>
     post<{ summary: string; command: string | null; output?: string }>('/api/export/preview', payload),
   exportPreset: (presetId: string, sources: string[], overrides?: Record<string, unknown>) =>

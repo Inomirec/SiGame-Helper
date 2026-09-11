@@ -204,6 +204,13 @@ class FrameGrabRequest(BaseModel):
     suffix: str = "_кадр"
 
 
+class ImagePreviewRequest(BaseModel):
+    """Просчёт превью: те же настройки, что и у экспорта, но без очереди."""
+
+    source: str
+    image: ImageOptions = Field(default_factory=ImageOptions)
+
+
 class RawCommandRequest(BaseModel):
     """Запуск отредактированной вручную команды ffmpeg."""
 

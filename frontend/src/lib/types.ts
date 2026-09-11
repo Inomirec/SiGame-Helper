@@ -260,3 +260,11 @@ export interface DownloadItemInput {
   start?: number | null
   end?: number | null
 }
+
+/** Готовое превью сжатия: настоящий файл, а не оценка веса. */
+export interface ImagePreview {
+  url: string
+  size: number
+  width: number
+  height: number
+}
