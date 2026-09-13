@@ -130,6 +130,8 @@ export interface Stroke {
   size: number
   /** true — стирает ранее нарисованное, а не закрашивает. */
   erase: boolean
+  /** Цвет мазка. Пусто — цвет по умолчанию. */
+  color?: string
 }
 
 export interface Rect {
@@ -137,6 +139,8 @@ export interface Rect {
   y: number
   width: number
   height: number
+  /** Цвет заливки маски. Пусто — чёрный. */
+  color?: string
 }
 
 export interface ImageOptions {

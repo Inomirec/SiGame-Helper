@@ -18,8 +18,11 @@ export function drawStrokes(
     if (!stroke.points.length) continue
     // Ластик не рисует прозрачным цветом, а вырезает уже нарисованное.
     ctx.globalCompositeOperation = stroke.erase ? 'destination-out' : 'source-over'
-    ctx.strokeStyle = color
-    ctx.fillStyle = color
+    // Цвет запомнен в самом мазке: иначе смена цвета перекрасила бы всё
+    // нарисованное раньше.
+    const ink = stroke.color ?? color
+    ctx.strokeStyle = ink
+    ctx.fillStyle = ink
     ctx.lineWidth = stroke.size
 
     if (stroke.points.length === 1) {

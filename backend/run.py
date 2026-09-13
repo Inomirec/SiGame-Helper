@@ -191,13 +191,28 @@ def _enable_file_drop(window) -> None:
         """Достаёт пути и отдаёт их странице обычным событием."""
         try:
             files = (event or {}).get("dataTransfer", {}).get("files") or []
+            names = [str(file.get("name")) for file in files if isinstance(file, dict)]
             paths = [
                 file["pywebviewFullPath"]
                 for file in files
                 if isinstance(file, dict) and file.get("pywebviewFullPath")
             ]
-            log.info("перетащено файлов: %s из %s", len(paths), len(files))
+            log.info(
+                "перетащено файлов: %s из %s (%s)",
+                len(paths), len(files), ", ".join(names) or "без имён",
+            )
             if not paths:
+                # Путь теряется между окном и страницей: WebView2 отдаёт файлы
+                # окну отдельно от события, а pywebview сопоставляет их по имени.
+                # Без этой записи причина невидима — в окне просто ничего не
+                # происходит.
+                with contextlib.suppress(Exception):
+                    from webview.dom import _dnd_state
+
+                    log.warning(
+                        "путь не пришёл: окно получило путей %s, ждали для %s",
+                        len(_dnd_state.get("paths", [])), names,
+                    )
                 return
             payload = json.dumps(paths, ensure_ascii=False)
             window.evaluate_js(
@@ -353,25 +368,6 @@ def bootstrap_tools() -> int:
     return 1 if failures else 0
 
 
-def ask_running_instance(host: str, port: int, path: str) -> bool:
-    """Просит уже открытую программу показать файл. False — она не запущена."""
-    import json
-    import urllib.error
-    import urllib.request
-
-    payload = json.dumps({"path": path}).encode("utf-8")
-    request = urllib.request.Request(
-        f"http://{host}:{port}/api/settings/open-file",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=3) as response:
-            return response.status == 200
-    except (urllib.error.URLError, OSError):
-        return False
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="SiGame Helper")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -383,17 +379,10 @@ def main() -> int:
         "--setup", action="store_true", help="доустановить недостающие инструменты и выйти"
     )
     parser.add_argument("--log-level", default="info")
-    # Windows передаёт путь так, когда файл бросают на ярлык программы
-    # или открывают его через «Открыть с помощью».
-    parser.add_argument("path", nargs="?", help="файл, который нужно открыть")
     args = parser.parse_args()
 
     if args.setup:
         return bootstrap_tools()
-
-    # Программа уже открыта — не поднимаем вторую, а просим показать файл.
-    if args.path and ask_running_instance(args.host, args.port, args.path):
-        return 0
 
     from app.paths import is_frozen
 
@@ -415,8 +404,6 @@ def main() -> int:
         print("Сервер не запустился. Смотрите сообщения выше.", file=sys.stderr)
         return 1
 
-    if args.path:
-        ask_running_instance(args.host, port, args.path)
 
     from app import __version__
 

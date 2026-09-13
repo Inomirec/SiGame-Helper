@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Brush, Crop, Eraser, Eye, Maximize2, Square, Trash2, Undo2 } from 'lucide-react'
+import { Brush, Crop, Eraser, Eye, Maximize2, Palette, Pipette, Square, Trash2, Undo2 } from 'lucide-react'
 import { mediaUrl } from '../lib/api'
 import { humanSize } from '../lib/format'
 import type { FileInfo, ImagePreview, Rect, Stroke } from '../lib/types'
@@ -14,6 +14,12 @@ export interface ImageEdit {
 }
 
 export const emptyImageEdit: ImageEdit = { crop: null, boxes: [], strokes: [] }
+
+/** Ключ запомненного цвета закраски. */
+const COLOR_KEY = 'sgh.paintColor'
+
+/** Готовые цвета: чёрный закрывает почти всё, остальные — под фон картинки. */
+const SWATCHES = ['#000000', '#ffffff', '#7c5cff', '#e24b4a', '#f0b429', '#2f9e6e']
 
 /**
  * Просмотр и правка изображения.
@@ -38,6 +44,12 @@ export function ImageEditor({
   const [selection, setSelection] = useState<Selection>(null)
   const [history, setHistory] = useState<ImageEdit[]>([])
   const [brushSize, setBrushSize] = useState(40)
+  const [paintColor, setPaintColor] = useState(
+    () => localStorage.getItem(COLOR_KEY) || '#000000',
+  )
+  // Меню по правой кнопке над маской.
+  const [menu, setMenu] = useState<{ index: number; x: number; y: number } | null>(null)
+  const colorInputRef = useRef<HTMLInputElement>(null)
 
   // Масштаб и сдвиг картинки. Сдвиг — в экранных пикселях: так его проще
   // удержать, когда масштаб меняется прямо под курсором.
@@ -46,6 +58,7 @@ export function ImageEditor({
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [panning, setPanning] = useState(false)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
   const spaceRef = useRef(false)
   const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
   // Обработчик колеса живёт вне React, поэтому текущие значения берём из ссылок.
@@ -66,7 +79,37 @@ export function ImageEditor({
     setHistory([])
     resetView()
     setShowAfter(false)
+    setMenu(null)
   }, [file.path, resetView])
+
+  const applyColor = useCallback(
+    (color: string) => {
+      setPaintColor(color)
+      localStorage.setItem(COLOR_KEY, color)
+    },
+    [],
+  )
+
+  /** Пипетка: берёт цвет ровно того пикселя, по которому щёлкнули. */
+  const pickColor = useCallback(
+    (point: { x: number; y: number }) => {
+      const image = imageRef.current
+      if (!image || !image.naturalWidth) return
+      const canvas = document.createElement('canvas')
+      canvas.width = image.naturalWidth
+      canvas.height = image.naturalHeight
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) return
+      ctx.drawImage(image, 0, 0)
+      const x = Math.max(0, Math.min(Math.round(point.x), canvas.width - 1))
+      const y = Math.max(0, Math.min(Math.round(point.y), canvas.height - 1))
+      const [r, g, b] = ctx.getImageData(x, y, 1, 1).data
+      const hex = '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
+      applyColor(hex)
+      setTool('box')
+    },
+    [applyColor],
+  )
 
   useEffect(() => {
     if (!preview) setShowAfter(false)
@@ -185,6 +228,18 @@ export function ImageEditor({
     setSelection(null)
   }, [selection, edit, onEditChange, commit])
 
+  /** Красит выбранную маску, не трогая остальные. */
+  const paintSelected = useCallback(
+    (index: number, color: string) => {
+      commit()
+      onEditChange({
+        ...edit,
+        boxes: edit.boxes.map((box, i) => (i === index ? { ...box, color } : box)),
+      })
+    },
+    [edit, onEditChange, commit],
+  )
+
   // Горячие клавиши работают, пока фокус не в поле ввода.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -250,6 +305,7 @@ export function ImageEditor({
         >
           <img
             key={file.path}
+            ref={imageRef}
             src={mediaUrl(file.path)}
             alt={file.name}
             className="block max-w-full select-none object-contain"
@@ -285,11 +341,13 @@ export function ImageEditor({
               onSelect={setSelection}
               strokes={edit.strokes}
               brushSize={brushSize}
-              paintColor="#000000"
+              paintColor={paintColor}
               onBoxesChange={(boxes) => onEditChange({ ...edit, boxes })}
               onCropChange={(crop) => onEditChange({ ...edit, crop })}
               onStrokesChange={(strokes) => onEditChange({ ...edit, strokes })}
               onCommit={commit}
+              onPick={pickColor}
+              onBoxMenu={(index, x, y) => setMenu({ index, x, y })}
             />
             </div>
           )}
@@ -324,7 +382,7 @@ export function ImageEditor({
       {/* Инструменты */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-surface px-3 py-2 text-[11px] text-ink-faint ring-1 ring-line-soft">
         <Segmented<Tool>
-          className="w-[420px]"
+          className="w-[500px]"
           value={tool}
           onChange={(value) => {
             setTool(value)
@@ -335,6 +393,7 @@ export function ImageEditor({
             { value: 'brush', label: 'Кисть', title: 'Закрасить от руки — для надписей дугой и наискось' },
             { value: 'eraser', label: 'Ластик', title: 'Стереть лишнее, что закрасили кистью' },
             { value: 'crop', label: 'Обрезать', title: 'Отрезать пустые поля и чёрные края' },
+            { value: 'pick', label: 'Пипетка', title: 'Взять цвет прямо с картинки' },
             { value: 'view', label: 'Просмотр', title: 'Ничего не менять, просто смотреть' },
           ]}
         />
@@ -354,6 +413,47 @@ export function ImageEditor({
             />
             <span className="w-8 font-mono tabular-nums text-ink">{brushSize}</span>
           </label>
+        )}
+
+        {tool !== 'view' && tool !== 'crop' && (
+          <span className="flex items-center gap-1.5" title="Цвет закраски">
+            <Palette size={12} />
+            {SWATCHES.map((color) => (
+              <button
+                key={color}
+                type="button"
+                onClick={() => applyColor(color)}
+                title={color}
+                className={`h-4 w-4 rounded-[3px] ring-1 transition-transform hover:scale-110 ${
+                  paintColor.toLowerCase() === color ? 'ring-accent' : 'ring-line'
+                }`}
+                style={{ background: color }}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={() => colorInputRef.current?.click()}
+              title="Выбрать любой цвет"
+              className={`h-4 w-4 rounded-[3px] ring-1 transition-transform hover:scale-110 ${
+                SWATCHES.includes(paintColor.toLowerCase()) ? 'ring-line' : 'ring-accent'
+              }`}
+              style={{
+                background:
+                  'conic-gradient(#e24b4a, #f0b429, #2f9e6e, #3aa2e0, #7c5cff, #e24b4a)',
+              }}
+            />
+            {/* Настоящее поле выбора цвета прячем: системное окно открываем
+                своей кнопкой, чтобы палитра выглядела единообразно. */}
+            <input
+              ref={colorInputRef}
+              type="color"
+              value={paintColor}
+              onChange={(event) => applyColor(event.target.value)}
+              className="h-0 w-0 opacity-0"
+              tabIndex={-1}
+            />
+            <span className="font-mono text-[10px] text-ink-dim">{paintColor}</span>
+          </span>
         )}
 
         <button
@@ -419,6 +519,12 @@ export function ImageEditor({
               Протяните рамку. Её тоже можно двигать и растягивать.
             </>
           )}
+          {tool === 'pick' && (
+            <>
+              <Pipette size={11} />
+              Щёлкните по картинке — цвет перейдёт в палитру.
+            </>
+          )}
           {tool === 'view' && (
             <>
               <Eye size={11} />
@@ -446,6 +552,105 @@ export function ImageEditor({
           {media?.hasAlpha && <span className="text-accent-soft">прозрачность</span>}
         </span>
       </div>
+
+      {menu && (
+        <BoxMenu
+          x={menu.x}
+          y={menu.y}
+          color={edit.boxes[menu.index]?.color ?? '#000000'}
+          onClose={() => setMenu(null)}
+          onDelete={() => {
+            commit()
+            onEditChange({
+              ...edit,
+              boxes: edit.boxes.filter((_, i) => i !== menu.index),
+            })
+            setSelection(null)
+            setMenu(null)
+          }}
+          onColor={(color) => {
+            paintSelected(menu.index, color)
+            applyColor(color)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Меню по правой кнопке над маской.
+ *
+ * Держится на своём слое поверх всего: внутри картинки его обрезал бы
+ * масштаб, а вместе с ней оно бы ещё и растянулось.
+ */
+function BoxMenu({
+  x,
+  y,
+  color,
+  onClose,
+  onDelete,
+  onColor,
+}: {
+  x: number
+  y: number
+  color: string
+  onClose: () => void
+  onDelete: () => void
+  onColor: (color: string) => void
+}) {
+  const colorRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const away = (event: MouseEvent) => {
+      if (!(event.target as HTMLElement).closest('[data-box-menu]')) onClose()
+    }
+    const escape = (event: KeyboardEvent) => event.key === 'Escape' && onClose()
+    // Ждём следующего события: то, которое открыло меню, ещё не «отпустили».
+    const timer = setTimeout(() => {
+      window.addEventListener('mousedown', away)
+      window.addEventListener('keydown', escape)
+    }, 0)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('mousedown', away)
+      window.removeEventListener('keydown', escape)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      data-box-menu
+      className="fixed z-50 min-w-[168px] overflow-hidden rounded-lg bg-surface-2 py-1 text-[12px] shadow-lg ring-1 ring-line"
+      style={{ left: Math.min(x, window.innerWidth - 180), top: Math.min(y, window.innerHeight - 90) }}
+    >
+      <button
+        type="button"
+        onClick={() => colorRef.current?.click()}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3"
+      >
+        <span
+          className="h-3 w-3 shrink-0 rounded-[3px] ring-1 ring-line"
+          style={{ background: color }}
+        />
+        Поменять цвет
+      </button>
+      <input
+        ref={colorRef}
+        type="color"
+        value={color}
+        onChange={(event) => onColor(event.target.value)}
+        className="h-0 w-0 opacity-0"
+        tabIndex={-1}
+      />
+      <button
+        type="button"
+        onClick={onDelete}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-danger hover:bg-surface-3"
+      >
+        <Trash2 size={12} />
+        Удалить
+      </button>
     </div>
   )
 }

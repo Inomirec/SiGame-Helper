@@ -7,7 +7,7 @@ export type Grip = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'move'
 
 export type Selection = { type: 'box'; index: number } | { type: 'crop' } | null
 
-export type Tool = 'view' | 'crop' | 'box' | 'brush' | 'eraser'
+export type Tool = 'view' | 'crop' | 'box' | 'brush' | 'eraser' | 'pick'
 
 interface DragState {
   grip: Grip
@@ -101,6 +101,8 @@ export function RectCanvas({
   onCropChange,
   onStrokesChange,
   onCommit,
+  onPick,
+  onBoxMenu,
 }: {
   width: number
   height: number
@@ -117,6 +119,10 @@ export function RectCanvas({
   onStrokesChange: (strokes: Stroke[]) => void
   /** Вызывается перед каждым изменением — родитель кладёт состояние в историю. */
   onCommit: () => void
+  /** Пипетка: отдаёт точку в координатах оригинала. */
+  onPick?: (point: { x: number; y: number }) => void
+  /** Правая кнопка по маске — родитель показывает меню. */
+  onBoxMenu?: (index: number, x: number, y: number) => void
 }) {
   const shellRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -213,6 +219,9 @@ export function RectCanvas({
       const moved = transform(drag.origin, drag.grip, point.x - drag.startX, point.y - drag.startY)
       const next = clampRect(moved, width, height)
       const rounded: Rect = {
+        // Цвет берём из исходного прямоугольника: пересобирая его заново,
+        // легко потерять всё, кроме координат.
+        ...drag.origin,
         x: Math.round(next.x),
         y: Math.round(next.y),
         width: Math.round(next.width),
@@ -249,7 +258,7 @@ export function RectCanvas({
           onCropChange(rect)
           onSelect({ type: 'crop' })
         } else {
-          onBoxesChange([...boxes, rect])
+          onBoxesChange([...boxes, { ...rect, color: paintColor }])
           onSelect({ type: 'box', index: boxes.length })
         }
       }
@@ -286,6 +295,11 @@ export function RectCanvas({
       className={`absolute inset-0 ${tool === 'view' ? '' : 'cursor-crosshair'}`}
       onPointerDown={(event) => {
         if (tool === 'view' || event.button !== 0) return
+        if (tool === 'pick') {
+          const point = toImage(event.clientX, event.clientY)
+          if (point) onPick?.(point)
+          return
+        }
         onSelect(null)
         onCommit()
 
@@ -297,6 +311,7 @@ export function RectCanvas({
             points: [point],
             size: brushSize,
             erase: tool === 'eraser',
+            color: paintColor,
           }
           strokeRef.current = stroke
           setLiveStroke(stroke)
@@ -373,13 +388,21 @@ export function RectCanvas({
         return (
           <div
             key={index}
-            className={`absolute bg-black ${
+            className={`absolute ${
               selected ? 'outline-accent' : 'outline-white/25 hover:outline-white/60'
             } ${tool === 'view' ? '' : 'cursor-move'}`}
             style={{
               ...asStyle(box),
+              background: box.color ?? '#000000',
               outlineStyle: 'solid',
               outlineWidth: `calc(${selected ? 2 : 1}px / var(--z, 1))`,
+            }}
+            onContextMenu={(event) => {
+              if (tool === 'view' || !onBoxMenu) return
+              event.preventDefault()
+              event.stopPropagation()
+              onSelect({ type: 'box', index })
+              onBoxMenu(index, event.clientX, event.clientY)
             }}
             onPointerDown={(event) => {
               if (tool === 'view' || event.button !== 0) return
@@ -418,10 +441,12 @@ export function RectCanvas({
       {draft && (
         <div
           className={`pointer-events-none absolute ${
-            tool === 'crop' ? 'outline-accent' : 'bg-black/75 outline-white/40'
+            tool === 'crop' ? 'outline-accent' : 'outline-white/40'
           }`}
           style={{
             ...asStyle(draft),
+            background: tool === 'crop' ? undefined : paintColor,
+            opacity: tool === 'crop' ? undefined : 0.75,
             outlineStyle: 'solid',
             outlineWidth: `calc(${tool === 'crop' ? 2 : 1}px / var(--z, 1))`,
           }}

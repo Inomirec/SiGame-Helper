@@ -70,6 +70,18 @@ def _quality_to_native(fmt: str, quality: int) -> int:
     return quality
 
 
+def _ffmpeg_color(value: str) -> str:
+    """Приводит цвет к виду, который ffmpeg понимает однозначно.
+
+    Из палитры браузера цвет приходит как ``#rrggbb``. ffmpeg такую запись
+    принимает не везде, а ``0xrrggbb`` — всегда.
+    """
+    value = (value or "").strip()
+    if value.startswith("#") and len(value) in (7, 9):
+        return "0x" + value[1:]
+    return value or "black"
+
+
 def build_args(
     source: Path,
     output: Path,
@@ -88,10 +100,17 @@ def build_args(
     # Порядок фильтров важен: сначала закрашиваем и обрезаем в координатах
     # оригинала (их и рисует пользователь), и только потом уменьшаем.
     chain: list[str] = []
+    if options.boxes:
+        # Маски рисуем в обычном RGB. В «телевизионном» цветовом виде drawbox
+        # укладывает цвет в диапазон 16-235, и заданный цвет оседает бледнее:
+        # выбранный пипеткой фон переставал совпадать с самим фоном.
+        # Именно rgba, а не rgb24: у картинок с прозрачностью rgb24 срезал бы
+        # альфа-канал, и прозрачный фон стал бы чёрным.
+        chain.append("format=rgba")
     for box in options.boxes:
         chain.append(
             f"drawbox=x={box.x}:y={box.y}:w={box.width}:h={box.height}"
-            f":color={options.box_color}:t=fill"
+            f":color={_ffmpeg_color(box.color or options.box_color)}:t=fill"
         )
 
     source_width = info.video.width if info and info.video else None

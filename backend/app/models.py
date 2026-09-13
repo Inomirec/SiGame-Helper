@@ -90,6 +90,8 @@ class Rect(BaseModel):
     y: int = Field(ge=0)
     width: int = Field(gt=0)
     height: int = Field(gt=0)
+    #: Цвет заливки. ``None`` — общий цвет из ``box_color``.
+    color: str | None = None
 
 
 class ImageOptions(BaseModel):
