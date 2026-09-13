@@ -7,6 +7,9 @@ import { useStore } from '../store'
 import { Timeline } from './Timeline'
 import { Button, IconButton, Modal, Spinner } from './ui'
 
+/** Ключ громкости общий с плеером медиатеки: настраивают её один раз. */
+const VOLUME_KEY = 'sgh.volume'
+
 /**
  * Просмотр видео по ссылке до скачивания.
  *
@@ -34,6 +37,10 @@ export function LinkPreview({
   const [error, setError] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
+  // Громкость общая с плеером медиатеки — человек настраивает её один раз.
+  const [volume, setVolume] = useState(
+    () => Number(localStorage.getItem(VOLUME_KEY) ?? '1') || 0,
+  )
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [trim, setTrim] = useState<{ in: number | null; out: number | null }>({
@@ -80,6 +87,13 @@ export function LinkPreview({
     if (video.paused) void video.play().catch(() => setError('Поток не проигрывается'))
     else video.pause()
   }
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.volume = muted ? 0 : volume
+    video.muted = muted
+  }, [volume, muted, info])
 
   const ensureTrim = (total: number) => {
     if (total > 0 && trim.in === null && trim.out === null) setTrim({ in: 0, out: total })
@@ -248,17 +262,24 @@ export function LinkPreview({
                   {timecode(time, true)}{' '}
                   <span className="text-ink-faint">/ {timecode(duration)}</span>
                 </span>
-                <IconButton
-                  onClick={() => {
-                    const video = videoRef.current
-                    if (!video) return
-                    video.muted = !video.muted
-                    setMuted(video.muted)
-                  }}
-                  title="Звук"
-                >
-                  {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                <IconButton onClick={() => setMuted((value) => !value)} title="Звук (M)">
+                  {muted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
                 </IconButton>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={muted ? 0 : volume}
+                  onChange={(event) => {
+                    const value = Number(event.target.value)
+                    setVolume(value)
+                    setMuted(value === 0)
+                    localStorage.setItem(VOLUME_KEY, String(value))
+                  }}
+                  className="w-20"
+                  title="Громкость"
+                />
 
                 <div className="mx-1 h-5 w-px bg-line" />
 
