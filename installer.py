@@ -57,6 +57,47 @@ def payload_dir() -> Path:
     return Path(bundled) if bundled else here
 
 
+def read_version(folder: Path) -> str | None:
+    """Версия программы, лежащей в папке. None — программы там нет."""
+    marker = folder / "backend" / "app" / "__init__.py"
+    try:
+        for line in marker.read_text(encoding="utf-8").splitlines():
+            if line.startswith("__version__"):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        return None
+    return None
+
+
+def payload_version() -> str | None:
+    """Версия, которую принёс с собой этот файл."""
+    return read_version(payload_dir())
+
+
+def memory_file() -> Path:
+    """Где запоминаем, куда программа установлена."""
+    base = os.environ.get("APPDATA") or str(Path.home())
+    return Path(base) / "SiGameHelper" / "install.txt"
+
+
+def remember_install(folder: Path) -> None:
+    try:
+        record = memory_file()
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(str(folder), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def known_install() -> Path | None:
+    """Папка прошлой установки, если она ещё на месте."""
+    try:
+        folder = Path(memory_file().read_text(encoding="utf-8").strip())
+    except OSError:
+        return None
+    return folder if folder.is_dir() and installed_python(folder) else None
+
+
 def installed_python(folder: Path) -> Path | None:
     """Готовый Python рядом с программой, если он есть.
 
@@ -124,10 +165,13 @@ class Worker:
     пока шла установка библиотек.
     """
 
-    def __init__(self, target: Path, shortcut: bool, report: queue.Queue) -> None:
+    def __init__(
+        self, target: Path, shortcut: bool, report: queue.Queue, update: bool = False
+    ) -> None:
         self.target = target
         self.shortcut = shortcut
         self.report = report
+        self.update = update
         self.stop = threading.Event()
 
     def say(self, text: str, percent: float | None = None) -> None:
@@ -287,9 +331,15 @@ class Worker:
     def run(self) -> None:
         try:
             self.copy_program()
-            self.install_python()
-            self.install_tools()
-            self.make_shortcut()
+            # При обновлении Python и ffmpeg уже стоят — качать их заново
+            # незачем, это те самые 250 МБ.
+            if not self.update or not installed_python(self.target):
+                self.install_python()
+            if not self.update or not (self.target / ".sgh-tools-ok").exists():
+                self.install_tools()
+            if not self.update:
+                self.make_shortcut()
+            remember_install(self.target)
             self.say("Готово", 100)
             self.report.put(("done", None, None))
         except Cancelled:
@@ -301,14 +351,17 @@ class Worker:
 class Wizard:
     """Окно установки: настройка, ход дела, итог."""
 
-    def __init__(self) -> None:
+    def __init__(self, update_target: Path | None = None) -> None:
         import tkinter as tk
         from tkinter import ttk
 
         self.tk = tk
         self.ttk = ttk
+        self.update_target = update_target
         self.root = tk.Tk()
-        self.root.title(f"Установка {APP_NAME}")
+        self.root.title(
+            f"Обновление {APP_NAME}" if update_target else f"Установка {APP_NAME}"
+        )
         self.root.resizable(False, False)
         # Крестик обязан останавливать работу, а не оставлять её в фоне.
         self.root.protocol("WM_DELETE_WINDOW", self.close_request)
@@ -336,7 +389,10 @@ class Wizard:
         self.bar = None
         self.working = False
 
-        self.show_setup()
+        if update_target:
+            self.show_update()
+        else:
+            self.show_setup()
         self.center()
 
     def center(self) -> None:
@@ -361,6 +417,74 @@ class Wizard:
             self.cancel()
 
     # --- страница 1: настройка ------------------------------------------
+
+    def show_update(self) -> None:
+        """Экран для тех, у кого программа уже стоит."""
+        ttk = self.ttk
+        self.clear()
+        target = self.update_target
+        if target is None:
+            self.show_setup()
+            return
+
+        ttk.Label(self.frame, text="Обновление", font=("Segoe UI", 14, "bold")).pack(
+            anchor="w"
+        )
+        ttk.Label(
+            self.frame,
+            text=(
+                f"Установлена версия {read_version(target) or 'неизвестная'}, "
+                f"этот файл принёс {payload_version() or 'новую'}."
+            ),
+        ).pack(anchor="w", pady=(2, 10))
+
+        ttk.Label(
+            self.frame,
+            text="Папка программы:" + chr(10) + str(target),
+            justify="left",
+            foreground="#555555",
+        ).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(
+            self.frame,
+            text=(
+                "Обновятся только файлы программы. Python, ffmpeg и загрузчики"
+                + chr(10)
+                + "останутся на месте — скачивать их заново не придётся."
+                + chr(10)
+                + "Настройки и скачанные файлы не трогаются."
+            ),
+            justify="left",
+            foreground="#555555",
+        ).pack(anchor="w", pady=(0, 16))
+
+        ttk.Checkbutton(
+            self.frame,
+            text="Открыть программу после обновления",
+            variable=self.want_open,
+        ).pack(anchor="w", pady=(0, 14))
+
+        buttons = ttk.Frame(self.frame)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Отмена", command=self.root.destroy).pack(side="right")
+        ttk.Button(buttons, text="Обновить", command=self.start_update).pack(
+            side="right", padx=(0, 8)
+        )
+        # Запасной выход: поставить свежую копию отдельно, ничего не трогая.
+        ttk.Button(buttons, text="Установить отдельно…", command=self.show_setup).pack(
+            side="left"
+        )
+
+    def start_update(self) -> None:
+        """Обновление отличается от установки только пропуском тяжёлых шагов."""
+        target = self.update_target
+        if target is None:
+            return
+        self.show_progress()
+        self.working = True
+        self.worker = Worker(target, False, self.queue, update=True)
+        threading.Thread(target=self.worker.run, name="update", daemon=True).start()
+        self.root.after(100, self.pump)
 
     def show_setup(self) -> None:
         ttk = self.ttk
@@ -514,7 +638,11 @@ class Wizard:
         ttk.Label(self.frame, text="Готово", font=("Segoe UI", 14, "bold")).pack(anchor="w")
         ttk.Label(
             self.frame,
-            text=f"{APP_NAME} установлен в:\n{self.worker.target}",
+            text=(
+                f"{APP_NAME} "
+                f"{'обновлён' if self.worker and self.worker.update else 'установлен'}"
+                f" в:\n{self.worker.target}"
+            ),
             justify="left",
         ).pack(anchor="w", pady=(4, 18))
 
@@ -555,11 +683,32 @@ class Wizard:
         self.root.mainloop()
 
 
+def needs_update(folder: Path) -> bool:
+    """Принёс ли этот файл версию, отличную от установленной."""
+    here, there = payload_version(), read_version(folder)
+    return bool(here and there and here != there)
+
+
 def main() -> int:
-    # Программа уже стоит рядом — значит нас позвали как обычный ярлык.
+    fresh = payload_version()
+
+    # Программа уже стоит рядом. Обычно это значит, что нас позвали ярлыком —
+    # но если версии разошлись, человек принёс сюда новый файл, чтобы
+    # обновиться, и запускать старую программу было бы издевательством.
     if installed_python(own_dir()):
+        if needs_update(own_dir()):
+            Wizard(update_target=own_dir()).run()
+            return 0
+        remember_install(own_dir())
         # Пути файлов, брошенных на ярлык, передаём программе как есть.
         start_app(own_dir(), [arg for arg in sys.argv[1:] if not arg.startswith("-")])
+        return 0
+
+    # Рядом ничего нет — но программа может стоять в другом месте. Тогда
+    # предлагаем обновить её, а не ставить второй раз и качать всё заново.
+    previous = known_install()
+    if previous and fresh and needs_update(previous):
+        Wizard(update_target=previous).run()
         return 0
 
     Wizard().run()
