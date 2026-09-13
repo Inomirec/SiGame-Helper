@@ -18,9 +18,6 @@ export const emptyImageEdit: ImageEdit = { crop: null, boxes: [], strokes: [] }
 /** Ключ запомненного цвета закраски. */
 const COLOR_KEY = 'sgh.paintColor'
 
-/** Готовые цвета: чёрный закрывает почти всё, остальные — под фон картинки. */
-const SWATCHES = ['#000000', '#ffffff', '#7c5cff', '#e24b4a', '#f0b429', '#2f9e6e']
-
 /**
  * Просмотр и правка изображения.
  *
@@ -416,34 +413,19 @@ export function ImageEditor({
         )}
 
         {tool !== 'view' && tool !== 'crop' && (
-          <span className="flex items-center gap-1.5" title="Цвет закраски">
-            <Palette size={12} />
-            {SWATCHES.map((color) => (
-              <button
-                key={color}
-                type="button"
-                onClick={() => applyColor(color)}
-                title={color}
-                className={`h-4 w-4 rounded-[3px] ring-1 transition-transform hover:scale-110 ${
-                  paintColor.toLowerCase() === color ? 'ring-accent' : 'ring-line'
-                }`}
-                style={{ background: color }}
-              />
-            ))}
-            <button
-              type="button"
-              onClick={() => colorInputRef.current?.click()}
-              title="Выбрать любой цвет"
-              className={`h-4 w-4 rounded-[3px] ring-1 transition-transform hover:scale-110 ${
-                SWATCHES.includes(paintColor.toLowerCase()) ? 'ring-line' : 'ring-accent'
-              }`}
-              style={{
-                background:
-                  'conic-gradient(#e24b4a, #f0b429, #2f9e6e, #3aa2e0, #7c5cff, #e24b4a)',
-              }}
+          <button
+            type="button"
+            onClick={() => colorInputRef.current?.click()}
+            title="Цвет закраски — нажмите, чтобы выбрать"
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 transition-colors hover:bg-surface-3"
+          >
+            <span
+              className="h-4 w-4 rounded-[3px] ring-1 ring-line"
+              style={{ background: paintColor }}
             />
+            <span className="font-mono text-[10px] text-ink-dim">{paintColor}</span>
             {/* Настоящее поле выбора цвета прячем: системное окно открываем
-                своей кнопкой, чтобы палитра выглядела единообразно. */}
+                своей кнопкой, чтобы оно не ломало вид панели. */}
             <input
               ref={colorInputRef}
               type="color"
@@ -452,8 +434,7 @@ export function ImageEditor({
               className="h-0 w-0 opacity-0"
               tabIndex={-1}
             />
-            <span className="font-mono text-[10px] text-ink-dim">{paintColor}</span>
-          </span>
+          </button>
         )}
 
         <button

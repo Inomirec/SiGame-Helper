@@ -141,7 +141,10 @@ def build_args(
             # прозрачности «тождественной» цветовой матрицей, а с ней libaom
             # требует полной цветности и отказывается кодировать —
             # «Subsampling must be 0 with AOM_CICP_MC_IDENTITY».
-            prefix = f"{scale}," if scale else ""
+            # format=rgba обязателен: у палитровых PNG (а логотипы почти всегда
+            # такие) отдельного канала прозрачности нет, и alphaextract падает
+            # с «Requested planes not available».
+            prefix = f"format=rgba,{scale}," if scale else "format=rgba,"
             alpha = (
                 "alphaextract,format=gray,"
                 "setparams=colorspace=bt470bg:color_primaries=bt709:color_trc=bt709"
@@ -239,7 +242,9 @@ async def alpha_is_used(source: Path) -> bool:
         # file=- обязателен: без него вывод фильтра идёт в журнал
         # и глохнет на уровне логов "error", а проверка молча
         # начинает всегда отвечать «прозрачность нужна».
-        "-vf", "alphaextract,signalstats,metadata=print:key=lavfi.signalstats.YMIN:file=-",
+        "-vf",
+        "format=rgba,alphaextract,signalstats,"
+        "metadata=print:key=lavfi.signalstats.YMIN:file=-",
         "-f", "null", "-",
     ]
     try:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import os
 from pathlib import Path
 from urllib.parse import quote
@@ -196,10 +198,26 @@ async def delete_file(payload: PathRequest) -> dict[str, Any]:
         raise HTTPException(404, str(exc)) from exc
     if target.is_dir():
         raise HTTPException(400, "Удаление папок через интерфейс не поддерживается")
-    try:
-        os.remove(target)
-    except OSError as exc:
-        raise HTTPException(500, f"Не удалось удалить файл: {exc}") from exc
+    # Файл может быть ещё занят: плеер только что отпустил поток, а Windows
+    # освобождает его не мгновенно. Пробуем несколько раз, прежде чем ругаться.
+    last: OSError | None = None
+    for attempt in range(6):
+        try:
+            os.remove(target)
+            last = None
+            break
+        except FileNotFoundError:
+            last = None
+            break
+        except OSError as exc:
+            last = exc
+            await asyncio.sleep(0.15 * (attempt + 1))
+    if last is not None:
+        raise HTTPException(
+            500,
+            "Файл занят другой программой — закройте его и попробуйте снова "
+            f"({last})",
+        )
     bus.publish("library.changed", {"path": str(target.parent)})
     return {"ok": True}
 

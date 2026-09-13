@@ -209,11 +209,16 @@ export const useStore = create<State>((set, get) => ({
       try {
         await api.addWorkspace(folder)
         await get().refreshSettings()
-        await get().refreshLibrary()
       } catch (error) {
         get().toast((error as Error).message, 'error')
         return
       }
+      // Сам файл открываем сразу, а обход папки пускаем следом: в папке с
+      // сотнями файлов ожидание списка растягивалось на секунды, и человек
+      // успевал решить, что ничего не произошло.
+      void get().select(path)
+      void get().refreshLibrary()
+      return
     }
     await get().select(path)
   },

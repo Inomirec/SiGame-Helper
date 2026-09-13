@@ -129,6 +129,73 @@ def _to_float(value: Any) -> float | None:
     return result if result >= 0 else None
 
 
+#: Расширения, у которых поворот хранится меткой EXIF, а не в самих данных.
+_EXIF_SUFFIXES = {".jpg", ".jpeg", ".jpe", ".tif", ".tiff"}
+
+#: Метка поворота в EXIF.
+_ORIENTATION_TAG = 0x0112
+
+#: Значения метки, при которых стороны кадра меняются местами.
+TURNED = (5, 6, 7, 8)
+
+
+def _orientation_from_tiff(block: bytes) -> int:
+    """Достаёт метку поворота из блока TIFF внутри EXIF."""
+    if len(block) < 8:
+        return 1
+    if block[:2] == b"II":
+        endian = "little"
+    elif block[:2] == b"MM":
+        endian = "big"
+    else:
+        return 1
+
+    start = int.from_bytes(block[4:8], endian)
+    if start + 2 > len(block):
+        return 1
+
+    count = int.from_bytes(block[start : start + 2], endian)
+    for index in range(count):
+        at = start + 2 + index * 12
+        if at + 12 > len(block):
+            break
+        if int.from_bytes(block[at : at + 2], endian) == _ORIENTATION_TAG:
+            return int.from_bytes(block[at + 8 : at + 10], endian) or 1
+    return 1
+
+
+def exif_orientation(path: Path) -> int:
+    """Метка поворота фотографии: 1 — как есть, 5-8 — повёрнута на бок.
+
+    Телефон снимает всегда одинаково, а поворот дописывает меткой. ffmpeg
+    её применяет при обработке, но ffprobe отдаёт размеры до поворота —
+    поэтому вертикальное фото программа считала бы горизонтальным: маски
+    ложились бы мимо, а уменьшение плющило бы кадр.
+    """
+    if path.suffix.lower() not in _EXIF_SUFFIXES:
+        return 1
+    try:
+        with path.open("rb") as handle:
+            if handle.read(2) != bytes((0xFF, 0xD8)):
+                return 1
+            while True:
+                marker = handle.read(2)
+                if len(marker) < 2 or marker[0] != 0xFF:
+                    return 1
+                kind = marker[1]
+                # Дошли до самих данных картинки — метки уже не будет.
+                if kind in (0xD8, 0xD9, 0xDA):
+                    return 1
+                size = int.from_bytes(handle.read(2), "big") - 2
+                if size < 0:
+                    return 1
+                block = handle.read(size)
+                if kind == 0xE1 and block[:4] == b"Exif":
+                    return _orientation_from_tiff(block[6:])
+    except OSError:
+        return 1
+
+
 async def probe(path: str | Path, use_cache: bool = True) -> MediaInfo:
     """Запускает ffprobe и возвращает разобранную информацию о файле."""
     file = Path(path)
@@ -178,6 +245,13 @@ async def probe(path: str | Path, use_cache: bool = True) -> MediaInfo:
                 pix_fmt=raw.get("pix_fmt"),
             )
         )
+
+    # Повёрнутое меткой фото ffmpeg развернёт сам, а ffprobe отдаёт размеры
+    # до поворота — приводим их к тому, что человек видит на экране.
+    if exif_orientation(file) in TURNED:
+        for stream in streams:
+            if stream.kind == "video" and stream.width and stream.height:
+                stream.width, stream.height = stream.height, stream.width
 
     info = MediaInfo(
         path=str(file),

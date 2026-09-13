@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   CheckSquare,
   ChevronRight,
   CornerLeftUp,
@@ -20,9 +22,28 @@ import { api, thumbUrl } from '../lib/api'
 import { humanSize } from '../lib/format'
 import type { LibraryFile } from '../lib/types'
 import { useStore, type FilterKind } from '../store'
-import { IconButton, Segmented, Spinner } from './ui'
+import { Button, IconButton, Modal, Segmented, Spinner } from './ui'
 
 const LAYOUT_KEY = 'sgh.libraryLayout'
+
+/** Имя файла из полного пути. Без регулярки: в путях Windows обратный слэш,
+ *  и экранирование в нём теряется слишком легко. */
+function fileName(path: string): string {
+  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+  return cut >= 0 ? path.slice(cut + 1) : path
+}
+
+type SortKey = 'name' | 'size' | 'modified' | 'kind'
+
+const SORT_KEY = 'sgh.sort'
+const SORT_DIR_KEY = 'sgh.sortDir'
+
+const SORT_LABELS: Record<SortKey, string> = {
+  name: 'По имени',
+  size: 'По весу',
+  modified: 'По дате',
+  kind: 'По типу',
+}
 
 export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
   const files = useStore((state) => state.files)
@@ -49,6 +70,13 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
   const toast = useStore((state) => state.toast)
 
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [sortOpen, setSortOpen] = useState(false)
+  const [sort, setSort] = useState<SortKey>(
+    () => (localStorage.getItem(SORT_KEY) as SortKey) || 'name',
+  )
+  const [descending, setDescending] = useState(
+    () => localStorage.getItem(SORT_DIR_KEY) === 'desc',
+  )
   // Режим показа запоминаем: большинство файлов узнаются по превью, но кому-то
   // привычнее плотный список.
   const [layout, setLayout] = useState<'list' | 'grid'>(
@@ -60,11 +88,51 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
     localStorage.setItem(LAYOUT_KEY, next)
   }
 
+  // Порядок задаёт человек, а не файловая система: в папке на сотни файлов
+  // иначе не найти нужный.
+  const sorted = useMemo(() => {
+    const list = [...files]
+    // Имена сравниваем по-человечески: иначе «10» встаёт перед «2», а
+    // русские буквы уезжают в конец списка.
+    const collator = new Intl.Collator('ru', { numeric: true, sensitivity: 'base' })
+    list.sort((a, b) => {
+      if (sort === 'size') return a.size - b.size
+      if (sort === 'modified') return a.modified - b.modified
+      if (sort === 'kind') {
+        const byKind = collator.compare(a.ext || a.kind, b.ext || b.kind)
+        return byKind || collator.compare(a.name, b.name)
+      }
+      return collator.compare(a.name, b.name)
+    })
+    return descending ? list.reverse() : list
+  }, [files, sort, descending])
+
+  function changeSort(key: SortKey) {
+    setSortOpen(false)
+    // Повторный выбор того же поля переворачивает порядок — привычно по
+    // заголовкам таблиц.
+    if (key === sort) {
+      const next = !descending
+      setDescending(next)
+      localStorage.setItem(SORT_DIR_KEY, next ? 'desc' : 'asc')
+      return
+    }
+    setSort(key)
+    localStorage.setItem(SORT_KEY, key)
+  }
+
   const allChecked = files.length > 0 && checked.length === files.length
   const totalSize = files.reduce((sum, file) => sum + file.size, 0)
 
   async function remove(path: string) {
     try {
+      // Открытый файл держит наш же плеер. Сначала закрываем его и даём
+      // Windows мгновение отпустить файл — иначе удаление упирается в
+      // «файл занят другим процессом».
+      if (activePath === path) {
+        void select(null)
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
       await api.deleteFile(path)
       setChecked(checked.filter((item) => item !== path))
       if (activePath === path) void select(null)
@@ -145,6 +213,41 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
           {checked.length ? `Выбрано: ${checked.length}` : 'Выбрать все'}
         </button>
         <span className="ml-auto tabular-nums">{humanSize(totalSize)}</span>
+        <span className="relative">
+          <IconButton
+            onClick={() => setSortOpen((value) => !value)}
+            active={sortOpen}
+            title={`Порядок: ${SORT_LABELS[sort].toLowerCase()}, ${
+              descending ? 'по убыванию' : 'по возрастанию'
+            }`}
+            className="h-6 w-6"
+          >
+            {descending ? <ArrowDownWideNarrow size={12} /> : <ArrowUpNarrowWide size={12} />}
+          </IconButton>
+          {sortOpen && (
+            <>
+              {/* Прозрачная подложка закрывает меню по клику мимо него. */}
+              <span className="fixed inset-0 z-40" onClick={() => setSortOpen(false)} />
+              <span className="absolute right-0 top-7 z-50 flex min-w-[150px] flex-col overflow-hidden rounded-lg bg-surface-2 py-1 text-[12px] shadow-lg ring-1 ring-line">
+                {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => changeSort(key)}
+                    className={`flex items-center justify-between px-3 py-1.5 text-left hover:bg-surface-3 ${
+                      sort === key ? 'text-accent-soft' : 'text-ink-dim'
+                    }`}
+                  >
+                    {SORT_LABELS[key]}
+                    {sort === key && (
+                      <span className="text-[10px]">{descending ? '↓' : '↑'}</span>
+                    )}
+                  </button>
+                ))}
+              </span>
+            </>
+          )}
+        </span>
         <IconButton
           onClick={() => setFlat(!flat)}
           active={flat}
@@ -215,7 +318,7 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
 
         {layout === 'grid' ? (
           <ul className="grid grid-cols-2 gap-2">
-            {files.map((file) => (
+            {sorted.map((file) => (
               <FileTile
                 key={file.path}
                 file={file}
@@ -224,7 +327,7 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
                 onOpen={() => void select(file.path)}
                 onCheck={() => toggleCheck(file.path)}
                 onDelete={() =>
-                  confirmDelete === file.path ? void remove(file.path) : setConfirmDelete(file.path)
+                  setConfirmDelete(file.path)
                 }
                 confirming={confirmDelete === file.path}
               />
@@ -232,7 +335,7 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
           </ul>
         ) : (
           <ul className="space-y-0.5">
-            {files.map((file) => (
+            {sorted.map((file) => (
               <FileRow
                 key={file.path}
                 file={file}
@@ -242,7 +345,7 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
                 onOpen={() => void select(file.path)}
                 onCheck={() => toggleCheck(file.path)}
                 onDelete={() =>
-                  confirmDelete === file.path ? void remove(file.path) : setConfirmDelete(file.path)
+                  setConfirmDelete(file.path)
                 }
                 onCancelDelete={() => setConfirmDelete(null)}
               />
@@ -250,6 +353,28 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
           </ul>
         )}
       </div>
+
+      {/* Удаление безвозвратно, поэтому спрашиваем прямо, а не «нажмите ещё раз»:
+          по второму клику легко попасть случайно. */}
+      <Modal
+        open={Boolean(confirmDelete)}
+        onClose={() => setConfirmDelete(null)}
+        title="Удалить файл?"
+      >
+        <p className="text-[13px] leading-relaxed text-ink-dim">
+          Файл{' '}
+          <span className="font-mono text-ink">
+            {confirmDelete ? fileName(confirmDelete) : ''}
+          </span>{' '}
+          будет удалён с диска безвозвратно — в корзину он не попадёт.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button onClick={() => setConfirmDelete(null)}>Отмена</Button>
+          <Button tone="danger" onClick={() => confirmDelete && void remove(confirmDelete)}>
+            Удалить
+          </Button>
+        </div>
+      </Modal>
     </aside>
   )
 }

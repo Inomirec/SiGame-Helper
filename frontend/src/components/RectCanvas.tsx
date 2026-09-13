@@ -136,6 +136,8 @@ export function RectCanvas({
   const draftRef = useRef<Rect | null>(null)
   const [draft, setDraft] = useState<Rect | null>(null)
   const [dragging, setDragging] = useState(false)
+  // Где сейчас курсор — по нему рисуем круг размером с кисть.
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
 
   const toImage = useCallback(
     (clientX: number, clientY: number) => {
@@ -292,7 +294,14 @@ export function RectCanvas({
   return (
     <div
       ref={shellRef}
-      className={`absolute inset-0 ${tool === 'view' ? '' : 'cursor-crosshair'}`}
+      className={`absolute inset-0 ${
+        tool === 'view' ? '' : painting ? 'cursor-none' : 'cursor-crosshair'
+      }`}
+      onPointerMove={(event) => {
+        if (!painting) return
+        setCursor(toImage(event.clientX, event.clientY))
+      }}
+      onPointerLeave={() => setCursor(null)}
       onPointerDown={(event) => {
         if (tool === 'view' || event.button !== 0) return
         if (tool === 'pick') {
@@ -436,6 +445,25 @@ export function RectCanvas({
           </div>
         )
       })}
+
+      {/* Круг под курсором: показывает, какой след оставит кисть. Размеры в
+          долях холста — значит при увеличении он растёт вместе с картинкой,
+          как и сам мазок. */}
+      {painting && cursor && (
+        <span
+          className="pointer-events-none absolute rounded-full border border-white/80"
+          style={{
+            left: `${(cursor.x / width) * 100}%`,
+            top: `${(cursor.y / height) * 100}%`,
+            width: `${(brushSize / width) * 100}%`,
+            height: `${(brushSize / height) * 100}%`,
+            transform: 'translate(-50%, -50%)',
+            borderWidth: 'calc(1px / var(--z, 1))',
+            boxShadow: 'inset 0 0 0 calc(1px / var(--z, 1)) rgba(0,0,0,0.55)',
+            background: tool === 'eraser' ? 'transparent' : `${paintColor}55`,
+          }}
+        />
+      )}
 
       {/* Прямоугольник, который сейчас рисуют */}
       {draft && (
