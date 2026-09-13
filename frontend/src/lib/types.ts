@@ -193,6 +193,7 @@ export interface AppSettings {
     force_mp4: boolean
     max_height: number
     cookies_from_browser: string | null
+    cookies_file: string | null
     proxy: string | null
     proxy_enabled: boolean
     embed_metadata: boolean

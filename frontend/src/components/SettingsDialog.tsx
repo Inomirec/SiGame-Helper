@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { CheckCircle2, FolderOpen, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { CheckCircle2, FolderOpen, RefreshCw, Trash2, Upload, XCircle } from 'lucide-react'
 import { api } from '../lib/api'
 import type { ToolInfo } from '../lib/types'
 import { useStore } from '../store'
@@ -164,18 +164,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                 плейлисты — живут на самой вкладке «Загрузка».
               </p>
 
-              <Select
-                label="Брать куки из браузера"
-                value={settings.download.cookies_from_browser ?? ''}
-                onChange={(value) =>
-                  void patch({ download: { cookies_from_browser: value || null } })
-                }
-                options={[
-                  { value: '', label: 'Не использовать' },
-                  { value: 'firefox', label: 'Firefox' },
-                ]}
-                hint="Нужно для приватных, возрастных и закрытых постов, а также для YouTube. Остальные браузеры в списке нет не по недосмотру: Chrome, Edge, Vivaldi и Opera шифруют свои куки так, что прочитать их снаружи нельзя."
-              />
+              <CookiesField />
+
               <div>
                 <span className="label">Папка для скачанного</span>
                 <div className="flex gap-2">
@@ -287,6 +277,125 @@ function ToolRow({
           {updating ? <Spinner size={11} /> : 'Обновить'}
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * Доступ к закрытым видео.
+ *
+ * Слово «куки» большинству знакомо только по всплывашкам на сайтах, поэтому
+ * блок объясняет своими словами: это пропуск, который подтверждает, что вы
+ * вошли на сайт. Файл кладут расширением браузера — так работает с любым
+ * браузером, а не только с Firefox.
+ */
+function CookiesField() {
+  const settings = useStore((state) => state.settings)
+  const refreshSettings = useStore((state) => state.refreshSettings)
+  const toast = useStore((state) => state.toast)
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  if (!settings) return null
+  const current = settings.download.cookies_file
+  const browser = settings.download.cookies_from_browser
+
+  async function upload(file: File) {
+    setBusy(true)
+    try {
+      const result = await api.uploadCookies(file)
+      await refreshSettings()
+      toast(`Пропуск загружен (${Math.round(result.size / 1024)} КБ)`, 'ok')
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    } finally {
+      setBusy(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  async function forget() {
+    setBusy(true)
+    try {
+      await api.clearCookies()
+      await refreshSettings()
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <span className="label">Доступ к закрытым видео</span>
+      <p className="mb-2 text-[11px] leading-snug text-ink-faint">
+        Нужен для возрастных, приватных и подписочных роликов, а иногда и для
+        обычного YouTube. Программе требуется подтверждение, что вы вошли на
+        сайт в своём браузере — оно и называется «куки».
+      </p>
+
+      {current ? (
+        <div className="flex items-center gap-2 rounded-lg bg-ok/10 px-3 py-2 text-[12px] text-ink-dim ring-1 ring-ok/25">
+          <CheckCircle2 size={14} className="shrink-0 text-ok" />
+          <span className="min-w-0 flex-1">Файл с пропуском загружен</span>
+          <button
+            type="button"
+            onClick={() => void forget()}
+            disabled={busy}
+            className="shrink-0 text-ink-faint hover:text-danger disabled:opacity-40"
+          >
+            Убрать
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Button onClick={() => inputRef.current?.click()} disabled={busy}>
+            <Upload size={14} />
+            Загрузить файл
+          </Button>
+          {browser && (
+            <span className="self-center text-[11px] text-ink-faint">
+              сейчас берётся из Firefox
+            </span>
+          )}
+        </div>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".txt,text/plain"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (file) void upload(file)
+        }}
+      />
+
+      <details className="mt-2 text-[11px] leading-snug text-ink-faint">
+        <summary className="cursor-pointer select-none hover:text-ink-dim">
+          Где взять этот файл
+        </summary>
+        <ol className="mt-1.5 list-decimal space-y-1 pl-4">
+          <li>
+            Поставьте в свой браузер расширение{' '}
+            <span className="text-ink-dim">Get cookies.txt LOCALLY</span> — оно есть
+            для Chrome, Edge, Firefox и других браузеров на их основе.
+          </li>
+          <li>Откройте сайт, с которого качаете, и убедитесь, что вы на нём вошли.</li>
+          <li>
+            Нажмите значок расширения и кнопку <span className="text-ink-dim">Export</span> —
+            сохранится файл <span className="font-mono text-ink-dim">cookies.txt</span>.
+          </li>
+          <li>Вернитесь сюда и выберите этот файл кнопкой выше.</li>
+        </ol>
+        <p className="mt-1.5">
+          Файл хранится только на вашем компьютере и никуда не отправляется. Если
+          вы вышли из аккаунта или сменили пароль, пропуск перестанет работать —
+          тогда выгрузите файл заново.
+        </p>
+      </details>
     </div>
   )
 }

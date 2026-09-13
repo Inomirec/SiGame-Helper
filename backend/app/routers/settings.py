@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import string
 import subprocess
@@ -9,13 +10,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from .. import config
 from ..core import binaries
 from ..core.events import bus
 from ..models import PathRequest, SettingsPatch
-from ..paths import default_workspace
+from ..paths import data_dir, default_workspace
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -199,3 +200,65 @@ def _shortcuts() -> list[tuple[str, Path]]:
         seen.add(key)
         result.append((name, folder))
     return result
+
+
+#: Больше настоящий файл с куками не бывает — защита от случайного видео.
+_COOKIES_LIMIT = 5 * 1024 * 1024
+
+
+def _looks_like_cookies(text: str) -> bool:
+    """Похоже ли содержимое на файл кук в формате Netscape.
+
+    Проверяем не ради строгости, а чтобы человек сразу понял, что выбрал не
+    тот файл: иначе ошибка вылезет позже и будет выглядеть как «скачивание
+    сломалось».
+    """
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Строка куки — семь полей, разделённых табуляцией.
+        if len(line.split("\t")) >= 6:
+            return True
+    return False
+
+
+@router.post("/cookies")
+async def upload_cookies(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Принимает файл с куками, выгруженный расширением браузера."""
+    raw = await file.read(_COOKIES_LIMIT + 1)
+    if len(raw) > _COOKIES_LIMIT:
+        raise HTTPException(400, "Файл слишком большой — это точно файл с куками?")
+    if not raw.strip():
+        raise HTTPException(400, "Файл пустой")
+
+    text = raw.decode("utf-8", "replace")
+    if not _looks_like_cookies(text):
+        raise HTTPException(
+            400,
+            "Не похоже на файл с куками. Нужен файл в формате Netscape — "
+            "его сохраняет расширение «Get cookies.txt LOCALLY».",
+        )
+
+    target = data_dir() / "cookies.txt"
+    target.write_text(text, encoding="utf-8")
+
+    settings = config.load()
+    settings.download.cookies_file = str(target)
+    # Файл надёжнее чтения браузера, поэтому второй способ выключаем,
+    # чтобы не гадать, какой из них сработал.
+    settings.download.cookies_from_browser = None
+    config.save(settings)
+    return {"ok": True, "path": str(target), "size": len(raw)}
+
+
+@router.post("/cookies/clear")
+async def clear_cookies() -> dict[str, Any]:
+    """Забывает загруженный файл с куками и удаляет его с диска."""
+    settings = config.load()
+    settings.download.cookies_file = None
+    config.save(settings)
+    target = data_dir() / "cookies.txt"
+    with contextlib.suppress(OSError):
+        target.unlink()
+    return {"ok": True}

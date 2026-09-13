@@ -69,6 +69,13 @@ let toastId = 0
 /** Библиотеку перезагружаем не чаще раза в 400 мс: событий от задач много. */
 let libraryTimer: ReturnType<typeof setTimeout> | null = null
 
+/** Папка, в которой лежит файл. Без регулярки: в путях Windows обратный
+ *  слэш, и экранирование в нём слишком легко потерять. */
+function folderOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+  return cut > 0 ? path.slice(0, cut) : path
+}
+
 export const useStore = create<State>((set, get) => ({
   ready: false,
   status: null,
@@ -199,13 +206,10 @@ export const useStore = create<State>((set, get) => ({
     // Файл может лежать где угодно, а программа работает только внутри
     // рабочих папок. Поэтому сначала пробуем открыть как есть, и лишь если
     // не пустило — добавляем его папку в рабочие.
+    const folder = folderOf(path)
     try {
       await api.fileInfo(path)
     } catch {
-      // Без регулярки: в путях Windows обратный слэш, и экранирование
-      // в нём слишком легко потерять.
-      const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
-      const folder = cut > 0 ? path.slice(0, cut) : path
       try {
         await api.addWorkspace(folder)
         await get().refreshSettings()
@@ -213,14 +217,14 @@ export const useStore = create<State>((set, get) => ({
         get().toast((error as Error).message, 'error')
         return
       }
-      // Сам файл открываем сразу, а обход папки пускаем следом: в папке с
-      // сотнями файлов ожидание списка растягивалось на секунды, и человек
-      // успевал решить, что ничего не произошло.
-      void get().select(path)
-      void get().refreshLibrary()
-      return
     }
-    await get().select(path)
+    // Сам файл открываем сразу, а обход папки пускаем следом: в папке с
+    // сотнями файлов ожидание списка растягивалось на секунды, и человек
+    // успевал решить, что ничего не произошло.
+    void get().select(path)
+    // И переводим список на его папку: иначе слева остаётся прежняя, и
+    // выходит, что открытого файла в медиатеке будто бы нет.
+    get().openFolder(folder)
   },
 
   async select(path) {

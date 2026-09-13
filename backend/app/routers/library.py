@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from .. import config
-from ..core import filmstrip, fsutil, thumbs, waveform
+from ..core import filmstrip, fsutil, thumbs, trash, waveform
 from ..core.events import bus
 from ..core.probe import probe
 from ..models import PathRequest, RenameRequest
@@ -191,7 +191,12 @@ async def audio_waveform(path: str, buckets: int = waveform.DEFAULT_BUCKETS) -> 
 
 @router.post("/delete")
 async def delete_file(payload: PathRequest) -> dict[str, Any]:
-    """Удаляет файл (безвозвратно — подтверждение спрашивает интерфейс)."""
+    """Убирает файл в корзину — как это делает проводник.
+
+    Безвозвратно не удаляем: промахнуться по кнопке легко, а вернуть файл
+    из корзины человек умеет и без нас. Если корзины нет (не Windows),
+    честно говорим об этом, а не удаляем молча навсегда.
+    """
     try:
         target = fsutil.safe_path(payload.path)
     except (PermissionError, FileNotFoundError, ValueError) as exc:
@@ -203,7 +208,7 @@ async def delete_file(payload: PathRequest) -> dict[str, Any]:
     last: OSError | None = None
     for attempt in range(6):
         try:
-            os.remove(target)
+            trash.to_trash(target)
             last = None
             break
         except FileNotFoundError:

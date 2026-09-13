@@ -366,7 +366,8 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
           <span className="font-mono text-ink">
             {confirmDelete ? fileName(confirmDelete) : ''}
           </span>{' '}
-          будет удалён с диска безвозвратно — в корзину он не попадёт.
+          отправится в корзину Windows. Если передумаете, его можно вернуть
+          оттуда, как из проводника.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={() => setConfirmDelete(null)}>Отмена</Button>

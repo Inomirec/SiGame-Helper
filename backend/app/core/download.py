@@ -97,6 +97,21 @@ def is_network_failure(text: str) -> str | None:
     return None
 
 
+def _cookie_args(settings: Any) -> list[str]:
+    """Откуда брать куки: из файла или прямо из браузера.
+
+    Файл надёжнее: Chrome и его родня с некоторых пор шифруют своё хранилище
+    так, что снаружи его не прочитать, а файл, выгруженный расширением,
+    понимают все загрузчики одинаково.
+    """
+    path = getattr(settings, "cookies_file", None)
+    if path and Path(path).is_file():
+        return ["--cookies", str(path)]
+    if settings.cookies_from_browser:
+        return ["--cookies-from-browser", settings.cookies_from_browser]
+    return []
+
+
 def _common_args(url: str | None = None) -> list[str]:
     """Общие флаги, зависящие от настроек (куки, прокси, Referer)."""
     settings = config.load().download
@@ -114,8 +129,7 @@ def _common_args(url: str | None = None) -> list[str]:
         # Пустой --proxy заставляет yt-dlp игнорировать системный прокси,
         # который иначе может увести трафик мимо обхода.
         args += ["--proxy", "", "--force-ipv4"]
-    if settings.cookies_from_browser:
-        args += ["--cookies-from-browser", settings.cookies_from_browser]
+    args += _cookie_args(settings)
     if url:
         referer = referer_for(url)
         if referer:
@@ -527,8 +541,7 @@ def _gallery_common_args() -> list[str]:
     args: list[str] = ["--no-mtime"]
     if settings.proxy_enabled and settings.proxy:
         args += ["--proxy", settings.proxy]
-    if settings.cookies_from_browser:
-        args += ["--cookies-from-browser", settings.cookies_from_browser]
+    args += _cookie_args(settings)
     return args
 
 

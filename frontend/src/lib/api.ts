@@ -69,6 +69,17 @@ export const api = {
   settings: () => request<AppSettings>('/api/settings'),
   patchSettings: (patch: Record<string, unknown>) =>
     request<AppSettings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  uploadCookies: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return fetch('/api/settings/cookies', { method: 'POST', body: form }).then(async (response) => {
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error((data && data.detail) || `Ошибка ${response.status}`)
+      return data as { ok: boolean; path: string; size: number }
+    })
+  },
+  clearCookies: () => post<{ ok: boolean }>('/api/settings/cookies/clear'),
+
   addWorkspace: (path: string) => post<AppSettings>('/api/settings/workspaces/add', { path }),
   removeWorkspace: (path: string) => post<AppSettings>('/api/settings/workspaces/remove', { path }),
   browse: (path?: string | null) =>
