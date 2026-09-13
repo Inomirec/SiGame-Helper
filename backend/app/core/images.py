@@ -181,7 +181,10 @@ def build_args(
             args += ["-vf", scale]
         args += [
             "-c:v", "libwebp",
-            "-quality", str(native),
+            # Именно -qscale:v. Параметр -quality в свежих сборках ffmpeg
+            # кодировщиком не читается: файл получался одинаковым при любом
+            # значении ползунка, а текст на скриншотах превращался в кашу.
+            "-qscale:v", str(native),
             "-compression_level", str(max(0, min(6, 6 - options.effort // 2))),
             "-pix_fmt", "yuva420p" if keep_alpha else "yuv420p",
             "-frames:v", "1",

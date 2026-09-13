@@ -163,7 +163,7 @@ export function DownloadPanel() {
     try {
       text = await navigator.clipboard.readText()
     } catch {
-      toast('Браузер не дал доступ к буферу — вставьте ссылку через Ctrl+V', 'error')
+      toast('Нет доступа к буферу обмена — вставьте ссылку через Ctrl+V', 'error')
       return
     }
     const links = text

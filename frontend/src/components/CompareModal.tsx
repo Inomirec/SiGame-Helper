@@ -231,7 +231,7 @@ export function CompareModal({
 
           {failed && (
             <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-[12.5px] leading-relaxed text-warn">
-              Браузер не смог открыть один из файлов — сравнить не получится.
+              Не удалось открыть один из файлов — сравнить не получится.
               Сам файл при этом в порядке, откройте его в проводнике.
             </p>
           )}

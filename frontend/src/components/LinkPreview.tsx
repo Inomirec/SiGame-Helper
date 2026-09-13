@@ -84,7 +84,13 @@ export function LinkPreview({
   const togglePlay = () => {
     const video = videoRef.current
     if (!video) return
-    if (video.paused) void video.play().catch(() => setError('Поток не проигрывается'))
+    if (video.paused) {
+      void video.play().catch((err: Error) => {
+        // Прерванный запуск — не поломка, а обычная гонка при переключении.
+        if (err?.name === 'AbortError') return
+        setError('Поток не проигрывается')
+      })
+    }
     else video.pause()
   }
 

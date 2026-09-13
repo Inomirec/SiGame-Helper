@@ -212,7 +212,13 @@ export function MediaEditor({
       if (loopSelection && trim.in !== null && (media.currentTime < trim.in || (trim.out !== null && media.currentTime >= trim.out))) {
         media.currentTime = trim.in
       }
-      void media.play().catch((err) => setError(String(err)))
+      void media.play().catch((err) => {
+        // AbortError — не поломка: так плеер отвечает, когда воспроизведение
+        // прервали раньше, чем оно успело начаться (переключили файл, нажали
+        // паузу). Показывать это человеку незачем.
+        if ((err as Error)?.name === 'AbortError') return
+        setError(String(err))
+      })
     } else {
       media.pause()
     }
@@ -343,8 +349,8 @@ export function MediaEditor({
       >
         {!file.playable && (
           <div className="absolute inset-x-0 top-0 z-10 bg-warn/15 px-4 py-2 text-center text-[12px] text-warn">
-            Браузер, скорее всего, не откроет «.{file.ext}». Файл можно обработать без предпросмотра —
-            или сначала сделать быстрый ремукс в MP4.
+            Формат «.{file.ext}» не показывается в предпросмотре. Обработать файл
+            можно и так — или сначала перегнать его в MP4 пресетом «Конвертация в MP4».
           </div>
         )}
 
@@ -362,7 +368,7 @@ export function MediaEditor({
             onTimeUpdate={onTimeUpdate}
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
-            onError={() => setError('Браузер не смог открыть этот файл')}
+            onError={() => setError('Не удалось открыть этот файл в предпросмотре')}
             onClick={togglePlay}
             playsInline
           />
@@ -388,7 +394,7 @@ export function MediaEditor({
               onTimeUpdate={onTimeUpdate}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
-              onError={() => setError('Браузер не смог открыть этот файл')}
+              onError={() => setError('Не удалось открыть этот файл в предпросмотре')}
             />
           </div>
         )}

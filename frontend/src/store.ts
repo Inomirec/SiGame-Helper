@@ -51,6 +51,7 @@ interface State {
   setFilter: (filter: FilterKind) => void
   setSearch: (search: string) => void
   openFolder: (path: string | null) => void
+  chooseWorkspace: (path: string) => Promise<void>
   setFlat: (flat: boolean) => void
   select: (path: string | null) => Promise<void>
   /** Открывает файл, перетащенный из проводника, даже если он вне рабочих папок. */
@@ -194,6 +195,16 @@ export const useStore = create<State>((set, get) => ({
   openFolder(path) {
     set({ currentFolder: path })
     void get().refreshLibrary()
+  },
+
+  async chooseWorkspace(path) {
+    // Список строится по текущей подпапке, а не по рабочей папке. Не сбросив
+    // её, мы бы показали прежнее содержимое, и смена папки выглядела бы как
+    // будто ничего не произошло.
+    await api.addWorkspace(path)
+    set({ currentFolder: null })
+    await get().refreshSettings()
+    await get().refreshLibrary()
   },
 
   setFlat(flat) {

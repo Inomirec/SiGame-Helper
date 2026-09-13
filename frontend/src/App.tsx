@@ -34,6 +34,7 @@ export default function App() {
   const openExternal = useStore((state) => state.openExternal)
   const toast = useStore((state) => state.toast)
   const refreshSettings = useStore((state) => state.refreshSettings)
+  const chooseWorkspace = useStore((state) => state.chooseWorkspace)
 
   const [tab, setTab] = useState<Tab>('library')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -225,11 +226,7 @@ export default function App() {
         open={workspacePicker}
         onClose={() => setWorkspacePicker(false)}
         title="Рабочая папка"
-        onPick={async (path) => {
-          await api.addWorkspace(path)
-          await refreshSettings()
-          void refreshLibrary()
-        }}
+        onPick={(path) => void chooseWorkspace(path)}
       />
 
       {/* Всплывающие уведомления */}
