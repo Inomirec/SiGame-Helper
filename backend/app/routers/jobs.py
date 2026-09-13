@@ -154,7 +154,13 @@ async def export_with_preset(preset_id: str, payload: dict[str, Any]) -> dict[st
                 request_data[section] = options[section]
         if options.get("stream_copy"):
             request_data["stream_copy"] = True
-        request_data.update(payload.get("overrides") or {})
+        # Поправки накладываем поверх пресета, а не вместо него: иначе одна
+        # галочка вроде «на видеокарте» стирала бы весь набор настроек.
+        for key, value in (payload.get("overrides") or {}).items():
+            if key in ("video", "audio", "image") and isinstance(value, dict):
+                request_data[key] = {**request_data.get(key, {}), **value}
+            else:
+                request_data[key] = value
         try:
             created.append(pipeline.submit_export(ExportRequest.model_validate(request_data)).to_dict())
         except (PermissionError, FileNotFoundError, ValueError) as exc:

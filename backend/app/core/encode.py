@@ -163,11 +163,18 @@ def resolve_codec(options: VideoOptions) -> str:
     """
     from . import binaries
 
-    if not options.use_gpu or options.codec == "copy" or options.crf == 0:
+    if not options.use_gpu or options.codec == "copy":
         return options.codec
     if options.codec.endswith(("nvenc", "qsv", "amf")):
         return options.codec
-    return binaries.hardware_codec(options.codec) or options.codec
+
+    chosen = binaries.hardware_codec(options.codec) or options.codec
+    # Режим без потерь из видеокарт умеет только NVIDIA. У остальных ноль
+    # превратился бы в обычное сжатие — молча и незаметно, поэтому для них
+    # остаёмся на процессоре.
+    if options.crf == 0 and not chosen.endswith("nvenc"):
+        return options.codec
+    return chosen
 
 
 def gpu_quality(codec: str, crf: int) -> int:
@@ -258,6 +265,15 @@ def video_codec_args(options: VideoOptions, crf: int | None = None) -> list[str]
         ]
 
     if codec == "h264_nvenc":
+        # Ноль означает «без потерь». У видеокарты это отдельный режим, а не
+        # значение качества: с обычным -cq 0 она отдала бы просто очень
+        # хороший, но всё же сжатый файл.
+        if quality == 0:
+            return [
+                "-c:v", "h264_nvenc",
+                "-tune", "lossless",
+                "-pix_fmt", "yuv420p",
+            ]
         return [
             "-c:v", "h264_nvenc",
             "-preset", _gpu_preset(options.speed_preset),
