@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react'
 import { api } from '../lib/api'
 import type { ToolInfo } from '../lib/types'
 import { useStore } from '../store'
@@ -136,26 +136,11 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                   случая, когда это включено вручную для картинок.
                 </p>
               </div>
-              <Button
-                onClick={async () => {
-                  const result = await api.clearThumbnails()
-                  toast(`Удалено превью: ${result.removed}`, 'ok')
-                }}
-                className="w-full"
-              >
-                <Trash2 size={13} />
-                Очистить кэш превью
-              </Button>
             </Section>
           </div>
 
           <div className="space-y-7">
             <Section title="Загрузка">
-              <p className="text-[11px] leading-snug text-ink-faint">
-                Настройки под конкретную ссылку — формат, качество, MP4,
-                плейлисты — живут на самой вкладке «Загрузка».
-              </p>
-
               <CookiesField />
 
               <Toggle

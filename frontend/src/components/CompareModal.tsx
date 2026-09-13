@@ -87,6 +87,41 @@ export function CompareModal({
     }
   }, [dragging, moveTo])
 
+  // Два отдельных плеера расходятся сами по себе: запускаются они не
+  // одновременно, а тяжёлый кодек декодируется медленнее. Держим их вместе
+  // на каждом кадре: мелкое расхождение выбираем лёгким изменением скорости
+  // (рывка не видно), крупное — перемоткой.
+  useEffect(() => {
+    if (!open) return
+
+    const tick = () => {
+      const left = leftVideo.current
+      const right = rightVideo.current
+      if (!left || !right || !left.duration) return
+
+      const target = toBefore(right.currentTime)
+      const drift = left.currentTime - target
+      if (right.paused) {
+        left.playbackRate = rate
+        // На паузе допуск — меньше кадра: именно здесь человек и всматривается.
+        if (Math.abs(drift) > 0.02) left.currentTime = target
+        return
+      }
+      if (Math.abs(drift) > 0.4) {
+        left.currentTime = target
+        return
+      }
+      // Отстал — чуть ускоряем, забежал — чуть замедляем.
+      left.playbackRate = Math.max(0.5, Math.min(2, rate * (1 - drift * 0.6)))
+    }
+
+    // Таймер, а не покадровый вызов: тот замирает, когда окно свернули,
+    // и плееры молча разъезжаются.
+    const timer = setInterval(tick, 50)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, rate, trimStart])
+
   function togglePlay() {
     const left = leftVideo.current
     const right = rightVideo.current
@@ -163,14 +198,7 @@ export function CompareModal({
                   setDuration(element.duration || 0)
                   element.currentTime = 0.04
                 }}
-                onTimeUpdate={(event) => {
-                  const value = event.currentTarget.currentTime
-                  setTime(value)
-                  const left = leftVideo.current
-                  if (left && Math.abs(left.currentTime - toBefore(value)) > 0.2) {
-                    left.currentTime = toBefore(value)
-                  }
-                }}
+                onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
               />

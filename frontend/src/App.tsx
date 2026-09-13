@@ -106,13 +106,15 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       {/* Верхняя панель */}
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line-soft bg-surface px-4">
+      <header className="relative flex h-12 shrink-0 items-center gap-3 border-b border-line-soft bg-surface px-4">
         <div className="flex items-center gap-2">
           <img src="/icon.png" alt="" className="h-[19px] w-[19px] rounded-[5px]" />
           <span className="text-[14px] font-semibold tracking-tight">SiGame Helper</span>
         </div>
 
-        <nav className="ml-4 flex gap-1">
+        {/* Вкладки по центру: в углу их принимали за украшение и не замечали,
+            что они вообще что-то переключают. */}
+        <nav className="absolute left-1/2 flex -translate-x-1/2 gap-1">
           <TabButton
             active={tab === 'library'}
             onClick={() => setTab('library')}
