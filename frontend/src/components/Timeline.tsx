@@ -252,6 +252,9 @@ export function Timeline({
     tickStep < 1 ? timecode(value, true) : timecode(value)
 
   const selection = { from: toRatio(from), to: toRatio(to) }
+  // Две подписи занимают примерно шестую часть дорожки. Сойдясь ближе, они
+  // налезают друг на друга и превращаются в кашу — тогда показываем одну.
+  const tightLabels = selection.to - selection.from < 0.16
   const showStrip = hasVideo && Boolean(strip || stripLoading)
   const zoomed = zoom > 1.01
 
@@ -463,15 +466,30 @@ export function Timeline({
 
       {/* Подписи меток */}
       <div className="relative mt-1 h-4 overflow-hidden text-[10px] tabular-nums text-accent-soft">
-        <span className="absolute" style={{ left: `${clamp(selection.from, 0, 0.98) * 100}%` }}>
-          {timecode(from, true)}
-        </span>
-        <span
-          className="absolute -translate-x-full"
-          style={{ left: `${clamp(selection.to, 0.02, 1) * 100}%` }}
-        >
-          {timecode(to, true)}
-        </span>
+        {tightLabels ? (
+          // Метки почти сошлись: две подписи налезли бы друг на друга и
+          // превратились в кашу — показываем одну общую.
+          <span
+            className="absolute -translate-x-1/2 whitespace-nowrap"
+            style={{
+              left: `${clamp((selection.from + selection.to) / 2, 0.12, 0.88) * 100}%`,
+            }}
+          >
+            {timecode(from, true)} → {timecode(to, true)}
+          </span>
+        ) : (
+          <>
+            <span className="absolute" style={{ left: `${clamp(selection.from, 0, 0.98) * 100}%` }}>
+              {timecode(from, true)}
+            </span>
+            <span
+              className="absolute -translate-x-full"
+              style={{ left: `${clamp(selection.to, 0.02, 1) * 100}%` }}
+            >
+              {timecode(to, true)}
+            </span>
+          </>
+        )}
       </div>
     </div>
   )
@@ -731,17 +749,35 @@ function Handle({
   ratio: number
   onPointerDown: (event: React.PointerEvent) => void
 }) {
-  // Метка вне видимого окна не должна ловить клики у самого края.
-  if (ratio < -0.02 || ratio > 1.02) return null
+  // Метка, оставшаяся за краем окна, не исчезает, а прижимается к краю
+  // призраком: иначе на сильном приближении отмерить пару секунд можно было
+  // бы только с клавиатуры. Схватив призрака, метку утаскивают в видимое.
+  const outside = ratio < 0 ? 'left' : ratio > 1 ? 'right' : null
+  const left = outside === 'left' ? 0.004 : outside === 'right' ? 0.996 : ratio
 
   return (
     <div
       className="absolute inset-y-0 z-20 w-4 -translate-x-1/2 cursor-ew-resize"
-      style={{ left: `${ratio * 100}%` }}
+      style={{ left: `${left * 100}%` }}
+      title={
+        outside
+          ? `Метка ${side === 'in' ? 'начала' : 'конца'} осталась ${
+              outside === 'left' ? 'левее' : 'правее'
+            } — потяните её сюда`
+          : undefined
+      }
       onPointerDown={onPointerDown}
     >
-      <div className="absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 bg-accent" />
-      <div className="absolute top-1/2 left-1/2 flex h-7 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[4px] bg-accent text-[9px] font-bold text-white shadow">
+      <div
+        className={`absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 ${
+          outside ? 'bg-accent/30' : 'bg-accent'
+        }`}
+      />
+      <div
+        className={`absolute top-1/2 left-1/2 flex h-7 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[4px] text-[9px] font-bold text-white shadow ${
+          outside ? 'bg-accent/40 ring-1 ring-accent/50' : 'bg-accent'
+        }`}
+      >
         {side === 'in' ? 'I' : 'O'}
       </div>
     </div>

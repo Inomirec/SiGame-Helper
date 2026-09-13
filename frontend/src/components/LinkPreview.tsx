@@ -85,6 +85,51 @@ export function LinkPreview({
     if (total > 0 && trim.in === null && trim.out === null) setTrim({ in: 0, out: total })
   }
 
+  // Те же клавиши, что и в медиатеке: размечают одинаково, значит и
+  // управляться должны одинаково. Свежие значения берём из ссылки —
+  // обработчик на window иначе застрянет на первом рендере.
+  const stateRef = useRef({ time: 0, duration: 0, trim })
+  stateRef.current = { time, duration, trim }
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+
+      const now = stateRef.current
+      switch (event.code) {
+        case 'Space':
+          event.preventDefault()
+          togglePlay()
+          break
+        case 'KeyI':
+          event.preventDefault()
+          setTrim({ ...now.trim, in: Math.min(now.time, now.trim.out ?? now.duration) })
+          break
+        case 'KeyO':
+          event.preventDefault()
+          setTrim({ ...now.trim, out: Math.max(now.time, now.trim.in ?? 0) })
+          break
+        case 'KeyM':
+          setMuted((value) => !value)
+          break
+        case 'ArrowLeft':
+          event.preventDefault()
+          seek(now.time - (event.shiftKey ? 5 : 1))
+          break
+        case 'ArrowRight':
+          event.preventDefault()
+          seek(now.time + (event.shiftKey ? 5 : 1))
+          break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, seek])
+
   /** Скачивает лёгкую копию целиком — для сайтов, чей поток браузер не открыл. */
   async function downloadDraft() {
     setBusy(true)

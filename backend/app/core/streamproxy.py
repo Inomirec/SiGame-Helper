@@ -14,7 +14,10 @@ yt-dlp умеет отдать прямую ссылку на поток, но �
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import http.client
 import json
+import re
 import secrets
 import time
 import urllib.error
@@ -42,6 +45,8 @@ PREVIEW_MAX_HEIGHT = 480
 @dataclass(slots=True)
 class Stream:
     url: str
+    #: Страница, с которой ссылка добыта: по ней ссылку можно получить заново.
+    source: str = ""
     headers: dict[str, str] = field(default_factory=dict)
     created: float = field(default_factory=time.time)
     title: str = ""
@@ -172,6 +177,7 @@ async def resolve(url: str) -> dict[str, Any]:
     token = register(
         Stream(
             url=str(chosen["url"]),
+            source=url,
             headers=headers,
             title=str(result["title"]),
             duration=data.get("duration"),
@@ -205,13 +211,93 @@ def open_upstream(stream: Stream, range_header: str | None) -> tuple[Any, dict[s
     return response, dict(response.headers), response.status
 
 
-def iter_response(response: Any) -> Iterator[bytes]:
-    """Перекачивает тело ответа блоками."""
+async def refresh(stream: Stream) -> bool:
+    """Добывает прямую ссылку заново.
+
+    У YouTube и подобных ссылка на файл живёт несколько часов и привязана к
+    сессии. Когда она протухает, источник отвечает 403 — раньше это доходило
+    до человека как «источник оборвал поток», хотя видео никуда не делось.
+    """
+    if not stream.source:
+        return False
+    try:
+        data = await resolve(stream.source)
+    except Exception:
+        return False
+
+    token = str(data.get("previewToken") or "")
+    # resolve заводит свой токен — он нам не нужен, забираем только ссылку.
+    fresh = _registry.pop(token, None) if token else None
+    if not fresh:
+        return False
+
+    stream.url = fresh.url
+    stream.headers = fresh.headers
+    stream.created = time.time()
+    return True
+
+
+def _range_start(headers: dict[str, str]) -> int:
+    """С какого байта начинается тело ответа — по заголовку Content-Range."""
+    match = re.search(r"bytes\s+(\d+)-", _header(headers, "content-range"))
+    return int(match.group(1)) if match else 0
+
+
+def _header(headers: dict[str, str], name: str) -> str:
+    for key, value in headers.items():
+        if key.lower() == name:
+            return str(value)
+    return ""
+
+
+def iter_response(stream: Stream, response: Any, headers: dict[str, str]) -> Iterator[bytes]:
+    """Перекачивает тело ответа блоками, переподключаясь при обрыве.
+
+    Источник может закрыть соединение на середине — особенно когда человек
+    бегает по ролику и открывает десяток диапазонов подряд. Браузер такой
+    обрыв показывает как «поток не проигрывается», хотя достаточно попросить
+    продолжение с того же байта.
+
+    Оборванный ответ приходится узнавать по счётчику: при чтении блоками
+    Python не отличает обрыв от честного конца файла — и там и там приходит
+    пустой блок. Поэтому держим в уме, сколько байт нам обещали.
+    """
+    sent = _range_start(headers)
+    length = _header(headers, "content-length")
+    expected = sent + int(length) if length.isdigit() else 0
+    attempts = 0
+
+    def reopen() -> Any:
+        """Просит у источника продолжение с того места, где оборвалось."""
+        try:
+            again, _, status = open_upstream(stream, f"bytes={sent}-")
+        except OSError:
+            return None
+        return again if again is not None and status < 400 else None
+
     try:
         while True:
-            chunk = response.read(CHUNK)
-            if not chunk:
-                break
-            yield chunk
+            try:
+                chunk = response.read(CHUNK)
+            except (OSError, EOFError, http.client.HTTPException):
+                chunk = b""
+
+            if chunk:
+                sent += len(chunk)
+                yield chunk
+                continue
+
+            # Пусто. Если обещали больше — это обрыв, а не конец.
+            if not expected or sent >= expected:
+                return
+            attempts += 1
+            if attempts > 3:
+                return
+            response.close()
+            following = reopen()
+            if following is None:
+                return
+            response = following
     finally:
-        response.close()
+        with contextlib.suppress(Exception):
+            response.close()
