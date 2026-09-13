@@ -44,6 +44,11 @@ export function ImageEditor({
   const [paintColor, setPaintColor] = useState(
     () => localStorage.getItem(COLOR_KEY) || '#000000',
   )
+  // Что обвели рамкой выделения: номера масок и мазков.
+  const [marked, setMarked] = useState<{ boxes: number[]; strokes: number[] }>({
+    boxes: [],
+    strokes: [],
+  })
   // Меню по правой кнопке над маской.
   const [menu, setMenu] = useState<{ index: number; x: number; y: number } | null>(null)
   const colorInputRef = useRef<HTMLInputElement>(null)
@@ -77,6 +82,7 @@ export function ImageEditor({
     resetView()
     setShowAfter(false)
     setMenu(null)
+    setMarked({ boxes: [], strokes: [] })
   }, [file.path, resetView])
 
   const applyColor = useCallback(
@@ -111,6 +117,12 @@ export function ImageEditor({
   useEffect(() => {
     if (!preview) setShowAfter(false)
   }, [preview])
+
+  // Ушли с выделения — снимаем его: номера объектов после правок сдвигаются,
+  // и «убрать выделенное» удалило бы не то.
+  useEffect(() => {
+    if (tool !== 'select') setMarked({ boxes: [], strokes: [] })
+  }, [tool])
 
   // Колесо приближает к курсору, а не к центру: иначе нужная деталь уезжает
   // за край ровно в тот момент, когда её пытаешься рассмотреть.
@@ -225,6 +237,52 @@ export function ImageEditor({
     setSelection(null)
   }, [selection, edit, onEditChange, commit])
 
+  /** Собирает всё, что попало в обведённую область. */
+  const markArea = useCallback(
+    (area: Rect) => {
+      const right = area.x + area.width
+      const bottom = area.y + area.height
+      // Берём то, что хотя бы задевает рамку: требовать попадания целиком
+      // неудобно — крупный мазок пришлось бы обводить полностью.
+      const boxes = edit.boxes
+        .map((box, index) => ({ box, index }))
+        .filter(
+          ({ box }) =>
+            box.x < right &&
+            box.x + box.width > area.x &&
+            box.y < bottom &&
+            box.y + box.height > area.y,
+        )
+        .map(({ index }) => index)
+
+      const strokes = edit.strokes
+        .map((stroke, index) => ({ stroke, index }))
+        .filter(({ stroke }) =>
+          stroke.points.some(
+            (point) =>
+              point.x >= area.x && point.x <= right && point.y >= area.y && point.y <= bottom,
+          ),
+        )
+        .map(({ index }) => index)
+
+      setMarked({ boxes, strokes })
+      setSelection(null)
+    },
+    [edit.boxes, edit.strokes],
+  )
+
+  /** Убирает всё выделенное рамкой одним действием. */
+  const removeMarked = useCallback(() => {
+    if (!marked.boxes.length && !marked.strokes.length) return
+    commit()
+    onEditChange({
+      ...edit,
+      boxes: edit.boxes.filter((_, index) => !marked.boxes.includes(index)),
+      strokes: edit.strokes.filter((_, index) => !marked.strokes.includes(index)),
+    })
+    setMarked({ boxes: [], strokes: [] })
+  }, [marked, edit, onEditChange, commit])
+
   /** Красит выбранную маску, не трогая остальные. */
   const paintSelected = useCallback(
     (index: number, color: string) => {
@@ -250,17 +308,21 @@ export function ImageEditor({
         event.preventDefault()
         undo()
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (selection) {
+        if (marked.boxes.length || marked.strokes.length) {
+          event.preventDefault()
+          removeMarked()
+        } else if (selection) {
           event.preventDefault()
           removeSelected()
         }
       } else if (event.key === 'Escape') {
         setSelection(null)
+        setMarked({ boxes: [], strokes: [] })
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [undo, removeSelected, selection])
+  }, [undo, removeSelected, removeMarked, selection, marked])
 
   const hasEdits = Boolean(edit.crop) || edit.boxes.length > 0
 
@@ -345,6 +407,8 @@ export function ImageEditor({
               onCommit={commit}
               onPick={pickColor}
               onBoxMenu={(index, x, y) => setMenu({ index, x, y })}
+              marked={marked}
+              onMarquee={markArea}
             />
             </div>
           )}
@@ -379,7 +443,7 @@ export function ImageEditor({
       {/* Инструменты */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-surface px-3 py-2 text-[11px] text-ink-faint ring-1 ring-line-soft">
         <Segmented<Tool>
-          className="w-[500px]"
+          className="w-[580px]"
           value={tool}
           onChange={(value) => {
             setTool(value)
@@ -390,6 +454,7 @@ export function ImageEditor({
             { value: 'brush', label: 'Кисть', title: 'Закрасить от руки — для надписей дугой и наискось' },
             { value: 'eraser', label: 'Ластик', title: 'Стереть лишнее, что закрасили кистью' },
             { value: 'crop', label: 'Обрезать', title: 'Отрезать пустые поля и чёрные края' },
+            { value: 'select', label: 'Выделить', title: 'Обвести область и убрать всё лишнее разом' },
             { value: 'pick', label: 'Пипетка', title: 'Взять цвет прямо с картинки' },
             { value: 'view', label: 'Просмотр', title: 'Ничего не менять, просто смотреть' },
           ]}
@@ -462,6 +527,18 @@ export function ImageEditor({
           Отменить
         </button>
 
+        {(marked.boxes.length > 0 || marked.strokes.length > 0) && (
+          <button
+            type="button"
+            onClick={removeMarked}
+            title="Убрать всё, что попало в рамку (Delete)"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent/15 px-2 py-1 text-accent-soft transition-colors hover:bg-accent/25"
+          >
+            <Trash2 size={12} />
+            Убрать выделенное: {marked.boxes.length + marked.strokes.length}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={removeSelected}
@@ -498,6 +575,12 @@ export function ImageEditor({
             <>
               <Crop size={11} />
               Протяните рамку. Её тоже можно двигать и растягивать.
+            </>
+          )}
+          {tool === 'select' && (
+            <>
+              <Square size={11} />
+              Обведите область — всё, что в неё попало, можно убрать разом.
             </>
           )}
           {tool === 'pick' && (

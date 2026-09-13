@@ -7,7 +7,7 @@ export type Grip = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'move'
 
 export type Selection = { type: 'box'; index: number } | { type: 'crop' } | null
 
-export type Tool = 'view' | 'crop' | 'box' | 'brush' | 'eraser' | 'pick'
+export type Tool = 'view' | 'crop' | 'box' | 'brush' | 'eraser' | 'pick' | 'select'
 
 interface DragState {
   grip: Grip
@@ -103,6 +103,8 @@ export function RectCanvas({
   onCommit,
   onPick,
   onBoxMenu,
+  marked,
+  onMarquee,
 }: {
   width: number
   height: number
@@ -123,6 +125,10 @@ export function RectCanvas({
   onPick?: (point: { x: number; y: number }) => void
   /** Правая кнопка по маске — родитель показывает меню. */
   onBoxMenu?: (index: number, x: number, y: number) => void
+  /** Что сейчас выделено рамкой: номера масок и мазков. */
+  marked?: { boxes: number[]; strokes: number[] }
+  /** Обвели область — родитель решает, что в неё попало. */
+  onMarquee?: (rect: Rect) => void
 }) {
   const shellRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -161,7 +167,19 @@ export function RectCanvas({
     if (!ctx) return
     ctx.clearRect(0, 0, width, height)
     drawStrokes(ctx, liveStroke ? [...strokes, liveStroke] : strokes, paintColor)
-  }, [strokes, liveStroke, width, height, paintColor])
+
+    // Выделенные мазки подкрашиваем поверх: иначе непонятно, что именно
+    // попало в рамку и что сейчас удалится.
+    const chosen = (marked?.strokes ?? [])
+      .map((index) => strokes[index])
+      .filter((stroke): stroke is Stroke => Boolean(stroke) && !stroke.erase)
+    if (chosen.length) {
+      ctx.save()
+      ctx.globalAlpha = 0.55
+      drawStrokes(ctx, chosen.map((stroke) => ({ ...stroke, color: undefined })), '#7c5cff')
+      ctx.restore()
+    }
+  }, [strokes, liveStroke, width, height, paintColor, marked])
 
   const painting = tool === 'brush' || tool === 'eraser'
 
@@ -256,7 +274,9 @@ export function RectCanvas({
           width: Math.round(pending.width),
           height: Math.round(pending.height),
         }
-        if (tool === 'crop') {
+        if (tool === 'select') {
+          onMarquee?.(rect)
+        } else if (tool === 'crop') {
           onCropChange(rect)
           onSelect({ type: 'crop' })
         } else {
@@ -304,6 +324,16 @@ export function RectCanvas({
       onPointerLeave={() => setCursor(null)}
       onPointerDown={(event) => {
         if (tool === 'view' || event.button !== 0) return
+        if (tool === 'select') {
+          onSelect(null)
+          begin(event, {
+            grip: 'se',
+            target: null,
+            origin: { x: 0, y: 0, width: 0, height: 0 },
+            creating: true,
+          })
+          return
+        }
         if (tool === 'pick') {
           const point = toImage(event.clientX, event.clientY)
           if (point) onPick?.(point)
@@ -394,17 +424,18 @@ export function RectCanvas({
       {/* Маски закраски */}
       {boxes.map((box, index) => {
         const selected = isSelected({ type: 'box', index })
+        const inMarquee = Boolean(marked?.boxes.includes(index))
         return (
           <div
             key={index}
             className={`absolute ${
-              selected ? 'outline-accent' : 'outline-white/25 hover:outline-white/60'
+              selected || inMarquee ? 'outline-accent' : 'outline-white/25 hover:outline-white/60'
             } ${tool === 'view' ? '' : 'cursor-move'}`}
             style={{
               ...asStyle(box),
               background: box.color ?? '#000000',
-              outlineStyle: 'solid',
-              outlineWidth: `calc(${selected ? 2 : 1}px / var(--z, 1))`,
+              outlineStyle: inMarquee ? 'dashed' : 'solid',
+              outlineWidth: `calc(${selected || inMarquee ? 2 : 1}px / var(--z, 1))`,
             }}
             onContextMenu={(event) => {
               if (tool === 'view' || !onBoxMenu) return
@@ -469,14 +500,14 @@ export function RectCanvas({
       {draft && (
         <div
           className={`pointer-events-none absolute ${
-            tool === 'crop' ? 'outline-accent' : 'outline-white/40'
+            tool === 'crop' || tool === 'select' ? 'outline-accent' : 'outline-white/40'
           }`}
           style={{
             ...asStyle(draft),
-            background: tool === 'crop' ? undefined : paintColor,
-            opacity: tool === 'crop' ? undefined : 0.75,
-            outlineStyle: 'solid',
-            outlineWidth: `calc(${tool === 'crop' ? 2 : 1}px / var(--z, 1))`,
+            background: tool === 'crop' || tool === 'select' ? undefined : paintColor,
+            opacity: tool === 'crop' || tool === 'select' ? undefined : 0.75,
+            outlineStyle: tool === 'select' ? 'dashed' : 'solid',
+            outlineWidth: `calc(${tool === 'crop' || tool === 'select' ? 2 : 1}px / var(--z, 1))`,
           }}
         />
       )}
