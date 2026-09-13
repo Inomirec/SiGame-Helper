@@ -195,9 +195,21 @@ export function RectCanvas({
     state: Omit<DragState, 'startX' | 'startY'>,
   ) => {
     event.stopPropagation()
+    // Браузер иначе начинает собственное перетаскивание элемента: курсор
+    // становится перечёркнутым, а события мыши уходят ему, и маска
+    // перестаёт тянуться.
+    event.preventDefault()
     const point = toImage(event.clientX, event.clientY)
     if (!point) return
-    event.currentTarget.setPointerCapture(event.pointerId)
+    // Захват вешаем на общий слой, а не на сам прямоугольник: тот при
+    // перерисовке заменяется новым узлом, захват теряется вместе со старым,
+    // и половина движений мыши до нас не доходит — тянется «по пикселю».
+    const holder = shellRef.current ?? event.currentTarget
+    try {
+      holder.setPointerCapture(event.pointerId)
+    } catch {
+      // Указатель мог уже отпуститься — тогда обойдёмся без захвата.
+    }
     dragRef.current = { ...state, startX: point.x, startY: point.y }
     draftRef.current = null
     setDraft(null)
@@ -314,9 +326,12 @@ export function RectCanvas({
   return (
     <div
       ref={shellRef}
-      className={`absolute inset-0 ${
+      className={`absolute inset-0 select-none ${
         tool === 'view' ? '' : painting ? 'cursor-none' : 'cursor-crosshair'
       }`}
+      // Страница не должна уметь начинать перетаскивание сама: именно из-за
+      // него появлялся перечёркнутый курсор посреди расстановки масок.
+      onDragStart={(event) => event.preventDefault()}
       onPointerMove={(event) => {
         if (!painting) return
         setCursor(toImage(event.clientX, event.clientY))

@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Brush, Crop, Eraser, Eye, Maximize2, Palette, Pipette, Square, Trash2, Undo2 } from 'lucide-react'
+import {
+  Brush,
+  Crop,
+  Eraser,
+  Eye,
+  Maximize2,
+  Pipette,
+  Square,
+  SquareDashedMousePointer,
+  Trash2,
+  Undo2,
+} from 'lucide-react'
 import { mediaUrl } from '../lib/api'
 import { humanSize } from '../lib/format'
 import type { FileInfo, ImagePreview, Rect, Stroke } from '../lib/types'
 import { RectCanvas, type Selection, type Tool } from './RectCanvas'
-import { Segmented } from './ui'
 
 export interface ImageEdit {
   crop: Rect | null
@@ -14,6 +24,17 @@ export interface ImageEdit {
 }
 
 export const emptyImageEdit: ImageEdit = { crop: null, boxes: [], strokes: [] }
+
+/** Инструменты редактора: значок, название и для чего он. */
+const TOOLS: { value: Tool; label: string; hint: string; icon: typeof Square }[] = [
+  { value: 'box', label: 'Закрасить', hint: 'прямоугольник: бренд, надпись, спойлер', icon: Square },
+  { value: 'brush', label: 'Кисть', hint: 'закрасить от руки, для надписей дугой и наискось', icon: Brush },
+  { value: 'eraser', label: 'Ластик', hint: 'стереть лишнее, что закрасили кистью', icon: Eraser },
+  { value: 'crop', label: 'Обрезать', hint: 'отрезать пустые поля и чёрные края', icon: Crop },
+  { value: 'select', label: 'Выделить', hint: 'обвести область и убрать всё лишнее разом', icon: SquareDashedMousePointer },
+  { value: 'pick', label: 'Пипетка', hint: 'взять цвет прямо с картинки', icon: Pipette },
+  { value: 'view', label: 'Просмотр', hint: 'ничего не менять, просто смотреть', icon: Eye },
+]
 
 /** Ключ запомненного цвета закраски. */
 const COLOR_KEY = 'sgh.paintColor'
@@ -442,23 +463,32 @@ export function ImageEditor({
 
       {/* Инструменты */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-surface px-3 py-2 text-[11px] text-ink-faint ring-1 ring-line-soft">
-        <Segmented<Tool>
-          className="w-[580px]"
-          value={tool}
-          onChange={(value) => {
-            setTool(value)
-            setSelection(null)
-          }}
-          options={[
-            { value: 'box', label: 'Закрасить', title: 'Прямоугольник: бренд, надпись, спойлер' },
-            { value: 'brush', label: 'Кисть', title: 'Закрасить от руки — для надписей дугой и наискось' },
-            { value: 'eraser', label: 'Ластик', title: 'Стереть лишнее, что закрасили кистью' },
-            { value: 'crop', label: 'Обрезать', title: 'Отрезать пустые поля и чёрные края' },
-            { value: 'select', label: 'Выделить', title: 'Обвести область и убрать всё лишнее разом' },
-            { value: 'pick', label: 'Пипетка', title: 'Взять цвет прямо с картинки' },
-            { value: 'view', label: 'Просмотр', title: 'Ничего не менять, просто смотреть' },
-          ]}
-        />
+        <span className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5 ring-1 ring-line-soft">
+          {TOOLS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => {
+                setTool(item.value)
+                setSelection(null)
+              }}
+              title={`${item.label} — ${item.hint}`}
+              aria-label={item.label}
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                tool === item.value
+                  ? 'bg-accent text-white'
+                  : 'text-ink-faint hover:bg-surface-3 hover:text-ink-dim'
+              }`}
+            >
+              <item.icon size={14} />
+            </button>
+          ))}
+        </span>
+        {/* Название рядом с иконками: по одному значку инструмент не угадать,
+            а наводить курсор на каждый — не дело. */}
+        <span className="w-[76px] shrink-0 text-ink-dim">
+          {TOOLS.find((item) => item.value === tool)?.label}
+        </span>
 
         {(tool === 'brush' || tool === 'eraser') && (
           <label className="flex items-center gap-2">
