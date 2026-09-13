@@ -163,7 +163,7 @@ def resolve_codec(options: VideoOptions) -> str:
     """
     from . import binaries
 
-    if not options.use_gpu or options.codec == "copy":
+    if not options.use_gpu or options.codec == "copy" or options.crf == 0:
         return options.codec
     if options.codec.endswith(("nvenc", "qsv", "amf")):
         return options.codec
@@ -185,6 +185,8 @@ def gpu_quality(codec: str, crf: int) -> int:
 
 def effective_crf(options: VideoOptions, info: MediaInfo | None) -> int:
     """CRF пресета, подогнанный под фактическое разрешение."""
+    if options.crf == 0:
+        return 0
     height = target_height(options, info)
     if not height:
         return options.crf
@@ -249,7 +251,9 @@ def video_codec_args(options: VideoOptions, crf: int | None = None) -> list[str]
             "-c:v", "libx264",
             "-crf", str(quality),
             "-preset", str(options.speed_preset or "fast"),
-            "-profile:v", "high",
+            # Профиль указываем только для сжатия с потерями: в режиме без
+            # потерь x264 с ним просто не запускается.
+            *([] if quality == 0 else ["-profile:v", "high"]),
             "-pix_fmt", "yuv420p",
         ]
 
