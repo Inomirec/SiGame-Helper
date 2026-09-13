@@ -215,10 +215,14 @@ def _enable_file_drop(window) -> None:
                     )
                 return
             payload = json.dumps(paths, ensure_ascii=False)
+            # Засекаем передачу пути странице: если открытие ощущается
+            # медленным, по журналу сразу видно, здесь задержка или дальше.
+            started = time.monotonic()
             window.evaluate_js(
                 "window.dispatchEvent(new CustomEvent('sgh:drop',"
                 f" {{ detail: {payload} }}))"
             )
+            log.info("путь передан странице за %.0f мс", (time.monotonic() - started) * 1000)
         except Exception:
             log.warning("не удалось принять перетащенные файлы", exc_info=True)
 

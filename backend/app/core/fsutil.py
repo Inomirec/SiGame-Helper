@@ -141,23 +141,6 @@ def unique_path(path: Path, *, overwrite: bool = False) -> Path:
     raise FileExistsError(f"Не удалось подобрать свободное имя для {path}")
 
 
-#: Человеческие имена папок по типу медиа.
-KIND_FOLDERS = {"video": "Видео", "audio": "Аудио", "image": "Картинки"}
-
-
-def kind_folder(kind: str) -> str:
-    """Имя подпапки для типа медиа. Пустая строка = раскладка выключена."""
-    if not config.load().export.sort_into_folders:
-        return ""
-    return KIND_FOLDERS.get(kind, "")
-
-
-def sorted_dir(base: Path, kind: str) -> Path:
-    """Добавляет к папке подпапку по типу, если раскладка включена."""
-    folder = kind_folder(kind)
-    return base / folder if folder else base
-
-
 def default_output_dir(source: Path, kind: str | None = None) -> Path:
     """Подпапка для результатов рядом с исходником.
 

@@ -307,35 +307,25 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
 
 # --- скачивание ---------------------------------------------------------
 
-def _download_dir(request: DownloadRequest) -> tuple[Path, bool]:
-    """Куда качать и раскладывать ли внутри по типам.
-
-    Если папку выбрал человек, кладём файлы ровно туда: он уже сказал, где
-    им место, и лишние подпапки внутри — сюрприз, а не помощь. Раскладку
-    оставляем только для папки ``_downloads``, которую программа заводит
-    сама: там иначе за месяц работы над паком копится одна куча.
-    """
+def _download_dir(request: DownloadRequest) -> Path:
+    """Куда качать: выбор человека важнее умолчания программы."""
     settings = config.load()
     if request.output_dir:
-        return Path(request.output_dir).expanduser(), False
+        return Path(request.output_dir).expanduser()
     if settings.download.directory:
-        return Path(settings.download.directory).expanduser(), False
-    return Path(settings.resolved_workspace()) / "Скачанное", True
+        return Path(settings.download.directory).expanduser()
+    return Path(settings.resolved_workspace()) / "Скачанное"
 
 
 def submit_download(request: DownloadRequest, item: DownloadItem) -> Job:
     """Ставит одну ссылку в очередь скачивания."""
-    base, sort_inside = _download_dir(request)
+    base = _download_dir(request)
     url = item.url
     section = (item.start, item.end) if item.has_section else None
 
-    # Тип известен до запуска, поэтому сразу выбираем подпапку: без этого
-    # через месяц работы над паком всё лежит в одной куче.
-    planned = request.mode
-    if planned == "auto":
-        planned = "images" if download.looks_like_gallery(url) else "video"
-    kind = {"images": "image", "audio": "audio"}.get(planned, "video")
-    target = fsutil.sorted_dir(base, kind) if sort_inside else base
+    # Раскладку по типам убрали: имена подпапок навязывались всем, а разложить
+    # скачанное под свои нужды человек может и сам.
+    target = base
 
     async def runner(ctx: JobContext) -> None:
         mode = request.mode

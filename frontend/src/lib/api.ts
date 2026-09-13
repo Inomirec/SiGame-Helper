@@ -78,6 +78,7 @@ export const api = {
       return data as { ok: boolean; path: string; size: number }
     })
   },
+  openLink: (name: string) => post<{ ok: boolean; url: string }>('/api/settings/open-link', { path: name }),
   clearCookies: () => post<{ ok: boolean }>('/api/settings/cookies/clear'),
 
   addWorkspace: (path: string) => post<AppSettings>('/api/settings/workspaces/add', { path }),

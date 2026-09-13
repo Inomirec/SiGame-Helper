@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, FolderOpen, RefreshCw, Trash2, Upload, XCircle } from 'lucide-react'
+import { CheckCircle2, RefreshCw, Trash2, XCircle } from 'lucide-react'
 import { api } from '../lib/api'
 import type { ToolInfo } from '../lib/types'
 import { useStore } from '../store'
-import { Button, Modal, NumberField, Section, Select, Spinner, Toggle } from './ui'
-import { FolderPicker } from './FolderPicker'
+import { Button, Modal, NumberField, Section, Segmented, Select, Spinner, Toggle } from './ui'
 
 /** Инструменты, которые протухают и требуют обновления. */
 const UPDATABLE = new Set(['yt-dlp', 'gallery-dl'])
@@ -19,7 +18,6 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const refreshStatus = useStore((state) => state.refreshStatus)
   const refreshLibrary = useStore((state) => state.refreshLibrary)
 
-  const [picking, setPicking] = useState<'download' | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
   const [versions, setVersions] = useState<Record<string, UpdateInfo>>({})
   const [checking, setChecking] = useState(false)
@@ -126,12 +124,6 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                 onChange={(value) => void patch({ export: { concurrency: value } })}
                 hint="Больше — быстрее пакет, но компьютер сильнее занят. Вступит в силу после перезапуска."
               />
-              <Toggle
-                checked={settings.export.sort_into_folders}
-                onChange={(value) => void patch({ export: { sort_into_folders: value } })}
-                label="Раскладывать по папкам"
-                hint="Скачанное и обработанное само разложится по «Видео», «Аудио» и «Картинки»."
-              />
               <div>
                 <span className="label">Папка для результатов</span>
                 <input
@@ -166,26 +158,6 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
               <CookiesField />
 
-              <div>
-                <span className="label">Папка для скачанного</span>
-                <div className="flex gap-2">
-                  <input
-                    className="field font-mono text-[12px]"
-                    value={settings.download.directory ?? ''}
-                    placeholder="по умолчанию: Скачанное в рабочей папке"
-                    onChange={(event) =>
-                      void patch({ download: { directory: event.target.value || null } })
-                    }
-                  />
-                  <Button onClick={() => setPicking('download')}>
-                    <FolderOpen size={14} />
-                  </Button>
-                </div>
-              </div>
-
-            </Section>
-
-            <Section title="Прокси">
               <Toggle
                 checked={settings.download.proxy_enabled}
                 onChange={(value) => void patch({ download: { proxy_enabled: value } })}
@@ -195,34 +167,16 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               <input
                 className="field font-mono text-[12px]"
                 value={settings.download.proxy ?? ''}
-                placeholder="socks5://127.0.0.1:1080"
+                placeholder="Пример: socks5://127.0.0.1:1080"
                 disabled={!settings.download.proxy_enabled}
                 onChange={(event) => void patch({ download: { proxy: event.target.value || null } })}
               />
             </Section>
 
-            <Section title="Имена скачанных файлов">
-              <input
-                className="field font-mono text-[11.5px]"
-                value={settings.download.filename_template}
-                onChange={(event) =>
-                  void patch({ download: { filename_template: event.target.value } })
-                }
-              />
-              <p className="text-[11px] text-ink-faint">
-                Синтаксис yt-dlp. По умолчанию: название и идентификатор ролика.
-              </p>
-            </Section>
           </div>
         </div>
       </Modal>
 
-      <FolderPicker
-        open={picking === 'download'}
-        onClose={() => setPicking(null)}
-        title="Папка для скачанного"
-        onPick={(path) => void patch({ download: { directory: path } })}
-      />
     </>
   )
 }
@@ -281,13 +235,15 @@ function ToolRow({
   )
 }
 
+
 /**
- * Доступ к закрытым видео.
+ * Доступ к сайтам, которые не отдают файлы кому попало.
  *
- * Слово «куки» большинству знакомо только по всплывашкам на сайтах, поэтому
- * блок объясняет своими словами: это пропуск, который подтверждает, что вы
- * вошли на сайт. Файл кладут расширением браузера — так работает с любым
- * браузером, а не только с Firefox.
+ * Слово «куки» человеку знакомо только по всплывашкам «сайт использует
+ * cookie», поэтому объясняем не термин, а причину: сайты научились отличать
+ * браузер от программы и требуют доказательства, что запрос от вошедшего
+ * пользователя. Способа два — прочитать Firefox или взять файл, и они
+ * разведены переключателем, а не свалены в один список.
  */
 function CookiesField() {
   const settings = useStore((state) => state.settings)
@@ -297,15 +253,35 @@ function CookiesField() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   if (!settings) return null
-  const current = settings.download.cookies_file
+  const file = settings.download.cookies_file
   const browser = settings.download.cookies_from_browser
+  const mode: 'off' | 'firefox' | 'file' = file ? 'file' : browser ? 'firefox' : 'off'
 
-  async function upload(file: File) {
+  async function choose(next: 'off' | 'firefox' | 'file') {
+    if (next === 'file') {
+      inputRef.current?.click()
+      return
+    }
     setBusy(true)
     try {
-      const result = await api.uploadCookies(file)
+      if (file) await api.clearCookies()
+      await api.patchSettings({
+        download: { cookies_from_browser: next === 'firefox' ? 'firefox' : null },
+      })
       await refreshSettings()
-      toast(`Пропуск загружен (${Math.round(result.size / 1024)} КБ)`, 'ok')
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function upload(chosen: File) {
+    setBusy(true)
+    try {
+      const result = await api.uploadCookies(chosen)
+      await refreshSettings()
+      toast(`Файл принят (${Math.round(result.size / 1024)} КБ)`, 'ok')
     } catch (error) {
       toast((error as Error).message, 'error')
     } finally {
@@ -314,52 +290,47 @@ function CookiesField() {
     }
   }
 
-  async function forget() {
-    setBusy(true)
-    try {
-      await api.clearCookies()
-      await refreshSettings()
-    } catch (error) {
-      toast((error as Error).message, 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <div>
-      <span className="label">Доступ к закрытым видео</span>
+      <span className="label">Доступ к сайтам</span>
       <p className="mb-2 text-[11px] leading-snug text-ink-faint">
-        Нужен для возрастных, приватных и подписочных роликов, а иногда и для
-        обычного YouTube. Программе требуется подтверждение, что вы вошли на
-        сайт в своём браузере — оно и называется «куки».
+        YouTube и другие крупные сайты давно не отдают файлы кому попало: они
+        проверяют, что запрос идёт из настоящего браузера, где кто-то вошёл в
+        аккаунт. Без такого подтверждения часть роликов не скачается вовсе, а
+        возрастные и закрытые — тем более. Подтверждение и есть те самые «куки».
       </p>
 
-      {current ? (
-        <div className="flex items-center gap-2 rounded-lg bg-ok/10 px-3 py-2 text-[12px] text-ink-dim ring-1 ring-ok/25">
+      <Segmented<'off' | 'firefox' | 'file'>
+        value={mode}
+        onChange={(value) => void choose(value)}
+        options={[
+          { value: 'off', label: 'Не нужно', title: 'Пока всё качается — можно не трогать' },
+          { value: 'firefox', label: 'Из Firefox', title: 'Программа сама прочитает ваш Firefox' },
+          { value: 'file', label: 'Файлом', title: 'Подходит любому браузеру' },
+        ]}
+      />
+
+      {mode === 'file' && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-ok/10 px-3 py-2 text-[12px] text-ink-dim ring-1 ring-ok/25">
           <CheckCircle2 size={14} className="shrink-0 text-ok" />
-          <span className="min-w-0 flex-1">Файл с пропуском загружен</span>
+          <span className="min-w-0 flex-1">Файл загружен и используется</span>
           <button
             type="button"
-            onClick={() => void forget()}
+            onClick={() => inputRef.current?.click()}
             disabled={busy}
-            className="shrink-0 text-ink-faint hover:text-danger disabled:opacity-40"
+            className="shrink-0 text-ink-faint hover:text-ink disabled:opacity-40"
           >
-            Убрать
+            Заменить
           </button>
         </div>
-      ) : (
-        <div className="flex gap-2">
-          <Button onClick={() => inputRef.current?.click()} disabled={busy}>
-            <Upload size={14} />
-            Загрузить файл
-          </Button>
-          {browser && (
-            <span className="self-center text-[11px] text-ink-faint">
-              сейчас берётся из Firefox
-            </span>
-          )}
-        </div>
+      )}
+
+      {mode === 'firefox' && (
+        <p className="mt-2 text-[11px] leading-snug text-ink-faint">
+          Firefox должен быть установлен, и в нём нужно быть авторизованным.
+          Chrome, Edge, Opera и Vivaldi так прочитать нельзя — они шифруют своё
+          хранилище. Для них выберите «Файлом».
+        </p>
       )}
 
       <input
@@ -368,32 +339,50 @@ function CookiesField() {
         accept=".txt,text/plain"
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0]
-          if (file) void upload(file)
+          const chosen = event.target.files?.[0]
+          if (chosen) void upload(chosen)
         }}
       />
 
-      <details className="mt-2 text-[11px] leading-snug text-ink-faint">
+      <details className="mt-2 text-[11px] leading-snug text-ink-faint" open={mode === 'file' && !file}>
         <summary className="cursor-pointer select-none hover:text-ink-dim">
-          Где взять этот файл
+          Как получить файл
         </summary>
-        <ol className="mt-1.5 list-decimal space-y-1 pl-4">
+        <ol className="mt-1.5 list-decimal space-y-1.5 pl-4">
           <li>
-            Поставьте в свой браузер расширение{' '}
-            <span className="text-ink-dim">Get cookies.txt LOCALLY</span> — оно есть
-            для Chrome, Edge, Firefox и других браузеров на их основе.
+            Поставьте расширение{' '}
+            <button
+              type="button"
+              onClick={() => void api.openLink('cookies-extension-chrome')}
+              className="text-accent-soft underline decoration-dotted underline-offset-2 hover:text-accent"
+            >
+              Get cookies.txt LOCALLY
+            </button>{' '}
+            — откроется его страница в магазине Chrome (подойдёт также для Edge,
+            Opera и Vivaldi). Для{' '}
+            <button
+              type="button"
+              onClick={() => void api.openLink('cookies-extension-firefox')}
+              className="text-accent-soft underline decoration-dotted underline-offset-2 hover:text-accent"
+            >
+              Firefox
+            </button>{' '}
+            есть своя версия.
           </li>
-          <li>Откройте сайт, с которого качаете, и убедитесь, что вы на нём вошли.</li>
+          <li>
+            Убедитесь, что вы вошли в аккаунт на тех сайтах, откуда собираетесь
+            скачивать. Файл сохранит подтверждения сразу для всех открытых вами
+            сайтов — отдельный файл под каждый не нужен.
+          </li>
           <li>
             Нажмите значок расширения и кнопку <span className="text-ink-dim">Export</span> —
-            сохранится файл <span className="font-mono text-ink-dim">cookies.txt</span>.
+            сохранится <span className="font-mono text-ink-dim">cookies.txt</span>.
           </li>
-          <li>Вернитесь сюда и выберите этот файл кнопкой выше.</li>
+          <li>Вернитесь сюда, нажмите «Файлом» и выберите этот файл.</li>
         </ol>
         <p className="mt-1.5">
-          Файл хранится только на вашем компьютере и никуда не отправляется. Если
-          вы вышли из аккаунта или сменили пароль, пропуск перестанет работать —
-          тогда выгрузите файл заново.
+          Файл лежит только на вашем компьютере и никуда не отправляется. Если
+          вы вышли из аккаунта или сменили пароль, выгрузите его заново.
         </p>
       </details>
     </div>

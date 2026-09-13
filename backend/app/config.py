@@ -54,8 +54,6 @@ class DownloadSettings(BaseModel):
 class ExportSettings(BaseModel):
     #: Имя подпапки для результатов обработки.
     output_folder: str = "Обработанное"
-    #: Раскладывать файлы по папкам «Видео», «Аудио», «Картинки».
-    sort_into_folders: bool = True
     #: Сколько задач кодирования выполнять одновременно.
     concurrency: int = Field(default=2, ge=1, le=8)
     #: Пресет видео, выбранный по умолчанию.

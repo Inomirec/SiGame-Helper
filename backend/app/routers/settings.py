@@ -7,6 +7,7 @@ import os
 import string
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -262,3 +263,30 @@ async def clear_cookies() -> dict[str, Any]:
     with contextlib.suppress(OSError):
         target.unlink()
     return {"ok": True}
+
+
+#: Куда разрешено уводить человека из программы. Список закрытый: страница
+#: не должна уметь открыть в браузере что угодно.
+_ALLOWED_LINKS = {
+    "cookies-extension-chrome": (
+        "https://chromewebstore.google.com/detail/get-cookiestxt-locally/"
+        "cclelndahbckbenkjhflpdbgdldlbecc"
+    ),
+    "cookies-extension-firefox": (
+        "https://addons.mozilla.org/ru/firefox/addon/get-cookies-txt-locally/"
+    ),
+}
+
+
+@router.post("/open-link")
+async def open_link(payload: PathRequest) -> dict[str, Any]:
+    """Открывает заранее известную страницу в браузере пользователя.
+
+    Принимаем не адрес, а его имя: так со страницы нельзя открыть
+    произвольный сайт, даже если она этого захочет.
+    """
+    url = _ALLOWED_LINKS.get(payload.path)
+    if not url:
+        raise HTTPException(404, "Неизвестная ссылка")
+    webbrowser.open(url)
+    return {"ok": True, "url": url}
