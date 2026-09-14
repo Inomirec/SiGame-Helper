@@ -199,7 +199,18 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
       <div className="flex items-center gap-1 border-b border-line-soft px-3 py-1.5 text-[11px] text-ink-faint">
         <button
           type="button"
-          onClick={() => setChecked(allChecked ? [] : files.map((file) => file.path))}
+          onClick={() => {
+            if (allChecked) {
+              setChecked([])
+              return
+            }
+            setChecked(files.map((file) => file.path))
+            // Пока ни один файл не открыт, правая панель пуста и пресет выбрать
+            // негде. Открываем первый из списка — но только если человек ещё
+            // ничего не открыл: иначе он потеряет метки и правки того файла,
+            // ради которого сюда и зашёл.
+            if (!activePath && sorted.length) void select(sorted[0].path)
+          }}
           className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-surface-3 hover:text-ink-dim"
         >
           {allChecked ? <CheckSquare size={13} /> : <Square size={13} />}
