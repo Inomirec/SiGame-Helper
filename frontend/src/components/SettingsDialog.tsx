@@ -116,13 +116,22 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
             <Section title="Обработка">
               <NumberField
-                label="Задач одновременно"
+                label="Видео одновременно"
                 value={settings.export.concurrency}
                 min={1}
                 max={8}
                 suffix="шт."
                 onChange={(value) => void patch({ export: { concurrency: value } })}
-                hint="Больше — быстрее пакет, но компьютер сильнее занят. Вступит в силу после перезапуска."
+                hint="Кодирование видео занимает процессор целиком, поэтому больше одного за раз помогает не всем. Вступит в силу после перезапуска."
+              />
+              <NumberField
+                label="Картинок одновременно"
+                value={settings.export.image_concurrency}
+                min={1}
+                max={16}
+                suffix="шт."
+                onChange={(value) => void patch({ export: { image_concurrency: value } })}
+                hint="Картинка маленькая, и на хорошем процессоре их идёт много. Подберите под свой компьютер. Вступит в силу после перезапуска."
               />
               <div>
                 <span className="label">Папка для результатов</span>

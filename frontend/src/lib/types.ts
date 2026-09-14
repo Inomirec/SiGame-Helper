@@ -204,6 +204,7 @@ export interface AppSettings {
     output_folder: string
     sort_into_folders: boolean
     concurrency: number
+    image_concurrency: number
     default_video_preset: string
     default_audio_preset: string
     default_image_preset: string

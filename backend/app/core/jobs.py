@@ -11,7 +11,6 @@ HTTP-эндпоинты никогда не блокируются: запрос
 from __future__ import annotations
 
 import asyncio
-import os
 import contextlib
 import time
 import uuid
@@ -138,22 +137,16 @@ class JobManager:
             return
         self._started = True
         settings = config.load()
-        # Картинки идут своим потоком. Кодирование видео занимает все ядра само,
-        # поэтому больше двух сразу там только мешает, а картинка маленькая:
-        # замер показал, что четыре разом обрабатываются вдвое быстрее двух.
-        # Дальше четырёх прироста уже нет — кодировщик и сам многопоточный.
-        #
-        # Сколько именно — считаем по ядрам, а не по настройке для видео:
-        # на слабой машине четыре кодировщика разом только мешают друг другу.
-        # Отдельной настройки не заводим: выбирать там нечего, у числа есть
-        # ровно одно разумное значение для каждого компьютера.
-        concurrency = max(1, settings.export.concurrency)
-        cores = os.cpu_count() or 4
+        # У видео и картинок свои очереди: кодирование видео занимает все ядра
+        # само, а картинка маленькая, и на хорошем процессоре их идёт много.
+        # Сколько именно — решает человек: подходящее число зависит от
+        # конкретного компьютера, угадать его за него нельзя.
         pools = {
-            "encode": concurrency,
-            "image": 1 if concurrency == 1 else min(4, max(2, cores // 4)),
+            "encode": max(1, settings.export.concurrency),
+            "image": max(1, settings.export.image_concurrency),
             "download": 3,
         }
+
         for pool, size in pools.items():
             self._queues[pool] = asyncio.Queue()
             for index in range(size):

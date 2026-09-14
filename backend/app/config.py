@@ -54,8 +54,12 @@ class DownloadSettings(BaseModel):
 class ExportSettings(BaseModel):
     #: Имя подпапки для результатов обработки.
     output_folder: str = "Обработанное"
-    #: Сколько задач кодирования выполнять одновременно.
-    concurrency: int = Field(default=2, ge=1, le=8)
+    #: Сколько видео кодировать одновременно.
+    concurrency: int = Field(default=1, ge=1, le=8)
+    #: Сколько картинок сжимать одновременно. Отдельно от видео: картинка
+    #: маленькая, и на хорошем процессоре их идёт много, даже когда видео
+    #: тянется по одному.
+    image_concurrency: int = Field(default=1, ge=1, le=16)
     #: Пресет видео, выбранный по умолчанию.
     default_video_preset: str = "av1_720_balanced"
     #: Пресет аудио, выбранный по умолчанию.
