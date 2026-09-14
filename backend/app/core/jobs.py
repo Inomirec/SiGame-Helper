@@ -137,8 +137,14 @@ class JobManager:
             return
         self._started = True
         settings = config.load()
+        # Картинки идут своим потоком. Кодирование видео занимает все ядра само,
+        # поэтому больше двух сразу там только мешает, а картинка маленькая:
+        # замер показал, что четыре разом обрабатываются вдвое быстрее двух.
+        # Дальше четырёх прироста уже нет — кодировщик и сам многопоточный.
+        concurrency = max(1, settings.export.concurrency)
         pools = {
-            "encode": max(1, settings.export.concurrency),
+            "encode": concurrency,
+            "image": 1 if concurrency == 1 else min(4, concurrency * 2),
             "download": 3,
         }
         for pool, size in pools.items():

@@ -155,7 +155,7 @@ def submit_export(request: ExportRequest) -> Job:
         kind="image" if request.kind == "image" else "encode",
         title=source.name,
         runner=runner,
-        pool="encode",
+        pool="image" if request.kind == "image" else "encode",
         source=str(source),
         meta={"preset": label, "kind": request.kind},
     )
@@ -300,7 +300,7 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
         kind="image",
         title=f"Кадр из «{source.name}»",
         runner=runner,
-        pool="encode",
+        pool="image",
         source=str(source),
         meta={"preset": f"стоп-кадр · {request.image.format.upper()}", "kind": "image"},
     )
