@@ -63,6 +63,7 @@ def _video(
     *,
     codec: str = "av1_svt",
     crf: int = 43,
+    adapt_crf: bool = True,
     speed_preset: str = "6",
     max_height: int = 720,
     max_fps: int = 30,
@@ -75,6 +76,7 @@ def _video(
     video = {
         "codec": codec,
         "crf": crf,
+        "adapt_crf": adapt_crf,
         "speed_preset": speed_preset,
         "max_height": max_height,
         "max_fps": max_fps,
@@ -190,6 +192,26 @@ VIDEO_PRESETS: list[dict[str, Any]] = [
         crf=38,
         speed_preset="5",
         audio_bitrate=128,
+    ),
+    _video(
+        "archive_av1",
+        "Архив",
+        "Сжимает старые видео, чтобы освободить место на диске. Разрешение, "
+        "частота кадров и громкость остаются как есть.",
+        crf=30,
+        # Заданное качество применяется как есть: подгонка под разрешение
+        # нужна пакам, а здесь она молча ухудшала бы 1080p и 4K.
+        adapt_crf=False,
+        # Пятый режим кодировщика оказался и быстрее четвёртого, и компактнее
+        # шестого — замерено на реальном ролике.
+        speed_preset="5",
+        max_height=0,
+        max_fps=0,
+        audio_bitrate=128,
+        # Громкость архиву не выравниваем: файл должен остаться таким, каким
+        # был, иначе «архив» перестаёт быть архивом.
+        loudnorm=False,
+        accent="amber",
     ),
     _video(
         "pack_h264",

@@ -194,11 +194,12 @@ def effective_crf(options: VideoOptions, info: MediaInfo | None) -> int:
     """CRF пресета, подогнанный под фактическое разрешение."""
     if options.crf == 0:
         return 0
+
+    adjusted = options.crf
     height = target_height(options, info)
-    if not height:
-        return options.crf
-    offset = next(delta for threshold, delta in _CRF_BY_HEIGHT if height >= threshold)
-    adjusted = max(0, min(63, options.crf + offset))
+    if options.adapt_crf and height:
+        offset = next(delta for threshold, delta in _CRF_BY_HEIGHT if height >= threshold)
+        adjusted = max(0, min(63, options.crf + offset))
 
     # У аппаратных кодировщиков своя шкала — переводим в неё.
     codec = resolve_codec(options)
