@@ -100,6 +100,69 @@ def find_free_port(preferred: int, host: str = HOST, attempts: int = 20) -> int:
     raise RuntimeError(f"Не нашлось свободного порта в диапазоне {preferred}-{preferred + attempts}")
 
 
+def running_instance(host: str, port: int) -> bool:
+    """Занят ли порт уже запущенной копией SiGame Helper.
+
+    Чужую программу на том же порту не трогаем: она не ответит нашей меткой,
+    и мы просто уйдём искать свободный порт, как и раньше.
+    """
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}/api/status", timeout=1.5) as answer:
+            data = json.loads(answer.read().decode("utf-8", "replace"))
+    except (OSError, urllib.error.URLError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("app") == "sigame-helper"
+
+
+def show_running_instance(host: str, port: int) -> bool:
+    """Просит уже запущенную копию показать своё окно."""
+    import urllib.error
+    import urllib.request
+
+    # Windows не даёт чужому процессу выйти на передний план, пока владелец
+    # текущего переднего плана не разрешит. Владелец сейчас мы — только что
+    # запустились, — поэтому разрешаем это кому угодно (ASFW_ANY).
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)
+
+    request = urllib.request.Request(f"http://{host}:{port}/api/window/show", method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=3) as answer:
+            return bool(json.loads(answer.read().decode("utf-8", "replace")).get("shown"))
+    except (OSError, urllib.error.URLError, ValueError):
+        return False
+
+
+def bring_to_front(window) -> None:
+    """Разворачивает окно и кладёт его поверх остальных."""
+    log = logging.getLogger("sigame-helper")
+    with contextlib.suppress(Exception):
+        window.restore()
+    with contextlib.suppress(Exception):
+        window.show()
+
+    if sys.platform != "win32":
+        return
+    try:
+        form = getattr(window, "native", None)
+        # .NET отдаёт дескриптор как IntPtr — числом он становится только
+        # через ToInt64(), обычный int() на нём спотыкается.
+        handle = int(form.Handle.ToInt64()) if form is not None else 0
+        if not handle:
+            log.warning("окно есть, а его дескриптора нет — поднять не получится")
+            return
+        user32 = ctypes.windll.user32
+        user32.ShowWindow(handle, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(handle)
+        log.info("окно поднято по просьбе второй копии")
+    except Exception:
+        log.warning("не удалось поднять окно", exc_info=True)
+
+
 def wait_until_up(host: str, port: int, timeout: float = 20.0) -> bool:
     """Ждёт, пока сервер начнёт принимать соединения."""
     deadline = time.monotonic() + timeout
@@ -293,6 +356,11 @@ def launch_window(url: str, port: int) -> bool:
     # обработчик вешается на её document, а до этого вешать не на что.
     window.events.loaded += lambda: _enable_file_drop(window)
 
+    # Чтобы вторая копия могла попросить это окно показаться.
+    from app.core import appwindow
+
+    appwindow.register(lambda: bring_to_front(window))
+
     try:
         webview.start(
             debug=False,
@@ -399,6 +467,15 @@ def main() -> int:
         format="%(asctime)s  %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    # Второй копии быть не должно: настройки каждая держит в памяти и
+    # записывает файл целиком, поэтому та, что сохранит последней, молча
+    # затрёт чужие изменения. Показываем уже открытое окно и выходим.
+    if not args.headless and running_instance(args.host, args.port):
+        print("SiGame Helper уже запущен — показываю его окно.")
+        if not show_running_instance(args.host, args.port):
+            print("Окно не отвечает. Возможно, программа запущена без окна.")
+        return 0
 
     port = find_free_port(args.port, args.host)
     url = f"http://{args.host}:{port}"

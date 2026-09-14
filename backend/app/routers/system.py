@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from .. import __version__
-from ..core import binaries, filmstrip, pipeline, presets, thumbs, updates, waveform
+from ..core import appwindow, binaries, filmstrip, pipeline, presets, thumbs, updates, waveform
 from ..core.events import bus
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -39,6 +39,9 @@ async def status(refresh: bool = False) -> dict:
     # Проверять видеокарту при каждом запросе дорого — только по явной просьбе.
     hardware = binaries.probe_hardware() if refresh or _hardware_known() else {}
     return {
+        # Метка приложения: по ней вторая копия узнаёт, что на порту именно
+        # мы, а не чужая программа, случайно занявшая его.
+        "app": "sigame-helper",
         "version": __version__,
         "hardware": hardware,
         "gpuAvailable": any(hardware.values()),
@@ -51,6 +54,17 @@ async def status(refresh: bool = False) -> dict:
         ),
         "capabilities": ffmpeg.features if ffmpeg else {},
     }
+
+
+@router.post("/window/show")
+async def show_window() -> dict:
+    """Поднимает окно программы на передний план.
+
+    Нужно, когда программу запускают второй раз: открывать вторую копию
+    незачем — у каждой были бы свои настройки в памяти, и та, что сохранит
+    последней, затёрла бы чужие изменения.
+    """
+    return {"shown": appwindow.show()}
 
 
 @router.post("/tools/{tool}/update")
