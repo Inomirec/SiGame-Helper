@@ -35,6 +35,40 @@ const DEFAULT_AUDIO: AudioOptions = {
 }
 
 const SUBFOLDER_KEY = 'sgh.outputSubfolder'
+const PREFS_KEY = 'sgh.exportPrefs'
+
+/** Настройки, которые человек выставляет под себя, а не под конкретный файл. */
+interface Prefs {
+  use_gpu?: boolean
+  max_height?: number
+  loudnorm?: boolean
+  mono?: boolean
+  videoPreset?: string
+  audioPreset?: string
+}
+
+function loadPrefs(): Prefs {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') as Prefs
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Запоминает выбор человека.
+ *
+ * Панель пересоздаётся при каждой смене файла, поэтому без этого галочки
+ * сбрасывались бы к умолчанию, и «на видеокарте» приходилось бы включать
+ * заново для каждого ролика.
+ */
+function savePrefs(patch: Prefs): void {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...patch }))
+  } catch {
+    // Приватный режим браузера — тогда просто не запомним.
+  }
+}
 
 /** Папка, в которой лежит файл. Без регулярки: в путях Windows обратный
  *  слэш, и экранирование в нём слишком легко потерять. */
@@ -75,8 +109,22 @@ export function ExportPanel({
   )
 
   const [presetId, setPresetId] = useState<string>('')
-  const [video, setVideo] = useState<VideoOptions>(DEFAULT_VIDEO)
-  const [audio, setAudio] = useState<AudioOptions>(DEFAULT_AUDIO)
+  const [video, setVideo] = useState<VideoOptions>(() => {
+    const prefs = loadPrefs()
+    return {
+      ...DEFAULT_VIDEO,
+      use_gpu: prefs.use_gpu ?? DEFAULT_VIDEO.use_gpu,
+      max_height: prefs.max_height ?? DEFAULT_VIDEO.max_height,
+    }
+  })
+  const [audio, setAudio] = useState<AudioOptions>(() => {
+    const prefs = loadPrefs()
+    return {
+      ...DEFAULT_AUDIO,
+      loudnorm: prefs.loudnorm ?? DEFAULT_AUDIO.loudnorm,
+      mono: prefs.mono ?? DEFAULT_AUDIO.mono,
+    }
+  })
   const [streamCopy, setStreamCopy] = useState(false)
   const [suffix, setSuffix] = useState('_sig')
 
@@ -97,7 +145,11 @@ export function ExportPanel({
 
   // При первом показе (и при смене типа файла) берём пресет по умолчанию.
   useEffect(() => {
-    const first = kindPresets.find((preset) => preset.available !== false)
+    const prefs = loadPrefs()
+    const remembered = isAudio ? prefs.audioPreset : prefs.videoPreset
+    const first =
+      kindPresets.find((preset) => preset.id === remembered && preset.available !== false) ??
+      kindPresets.find((preset) => preset.available !== false)
     if (first && !kindPresets.some((preset) => preset.id === presetId)) {
       applyPreset(first)
     }
@@ -106,6 +158,7 @@ export function ExportPanel({
 
   function applyPreset(preset: Preset) {
     setPresetId(preset.id)
+    savePrefs(preset.kind === 'audio' ? { audioPreset: preset.id } : { videoPreset: preset.id })
     if (preset.options.video) {
       // Разрешение выбирает человек отдельно — пресет отвечает только за силу
       // сжатия, поэтому его max_height мы не подхватываем.
@@ -260,7 +313,10 @@ export function ExportPanel({
             <Segmented
               columns={3}
               value={String(video.max_height)}
-              onChange={(value) => setVideo({ ...video, max_height: Number(value) })}
+              onChange={(value) => {
+                setVideo({ ...video, max_height: Number(value) })
+                savePrefs({ max_height: Number(value) })
+              }}
               options={[
                 { value: '0', label: 'Оригинал', title: 'Оставить разрешение исходника' },
                 { value: '2160', label: '4K' },
@@ -318,21 +374,30 @@ export function ExportPanel({
             {!streamCopy && !isAudio && status?.gpuAvailable && (
               <Toggle
                 checked={video.use_gpu}
-                onChange={(value) => setVideo({ ...video, use_gpu: value })}
+                onChange={(value) => {
+                  setVideo({ ...video, use_gpu: value })
+                  savePrefs({ use_gpu: value })
+                }}
                 label="Кодировать на видеокарте"
                 hint="Высокая скорость, но в теории могут появиться незначительные артефакты. Полезно для больших видео, когда важно время."
               />
             )}
             <Toggle
               checked={audio.loudnorm}
-              onChange={(value) => setAudio({ ...audio, loudnorm: value })}
+              onChange={(value) => {
+                setAudio({ ...audio, loudnorm: value })
+                savePrefs({ loudnorm: value })
+              }}
               disabled={streamCopy}
               label="Выравнивание звука"
               hint="У всех источников с этой настройкой будет одинаковый предел громкости."
             />
             <Toggle
               checked={audio.mono}
-              onChange={(value) => setAudio({ ...audio, mono: value })}
+              onChange={(value) => {
+                setAudio({ ...audio, mono: value })
+                savePrefs({ mono: value })
+              }}
               disabled={streamCopy}
               label="Перевести звук в моно"
               hint="Делает звук более плоским, но и понижает вес файла примерно на треть."
