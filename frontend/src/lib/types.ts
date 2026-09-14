@@ -145,8 +145,6 @@ export interface Rect {
 
 export interface ImageOptions {
   format: 'avif' | 'webp' | 'jpg' | 'png'
-  target_kb: number | null
-  passes: number
   quality: number
   max_dimension: number
   effort: number
@@ -202,7 +200,6 @@ export interface AppSettings {
   }
   export: {
     output_folder: string
-    sort_into_folders: boolean
     concurrency: number
     image_concurrency: number
     default_video_preset: string

@@ -36,8 +36,6 @@ class ImageResult:
     width: int
     height: int
     quality_used: int
-    attempts: int
-    within_target: bool
 
 
 def _target_dimensions(
@@ -308,7 +306,7 @@ async def compress(
     options: ImageOptions,
     progress: ProgressCb | None = None,
 ) -> ImageResult:
-    """Сжимает изображение, при необходимости подбирая качество под лимит веса."""
+    """Сжимает изображение с заданным качеством."""
     output.parent.mkdir(parents=True, exist_ok=True)
 
     paint_dir: Path | None = None
@@ -325,74 +323,15 @@ async def compress(
             if asyncio.iscoroutine(result):
                 await result
 
-    # PNG без потерь — подбирать нечего, делаем один проход.
-    if options.target_kb is None or options.format == "png":
-        await report(0.1, "Кодирование")
-        try:
-            await _run(build_args(source, output, options, info, options.quality, alpha_used))
-            size = output.stat().st_size
-        finally:
-            if paint_dir:
-                shutil.rmtree(paint_dir, ignore_errors=True)
-        await report(1.0, "Готово")
-        return _result(output, size, info, options, options.quality, 1, True)
-
-    target_bytes = options.target_kb * 1024
-    workdir = output.parent / f".{output.stem}.tmp"
-    workdir.mkdir(parents=True, exist_ok=True)
-
-    low, high = 1, 100
-    best_path: Path | None = None
-    best_size = 0
-    best_quality = 0
-    attempts = 0
-
+    await report(0.1, "Кодирование")
     try:
-        for step in range(options.passes):
-            quality = (low + high) // 2
-            attempts += 1
-            candidate = workdir / f"try{step}{EXTENSIONS[options.format]}"
-            await report(
-                step / max(options.passes, 1),
-                f"Проход {step + 1}/{options.passes}: качество {quality}",
-            )
-            await _run(build_args(source, output=candidate, options=options,
-                                  info=info, quality=quality,
-                                  alpha_used=alpha_used))
-            size = candidate.stat().st_size
-
-            if size <= target_bytes:
-                # Влезли — запоминаем и пробуем поднять качество.
-                if size > best_size:
-                    best_path, best_size, best_quality = candidate, size, quality
-                low = quality + 1
-            else:
-                high = quality - 1
-
-            if low > high:
-                break
-
-        if best_path is None:
-            # Ни один вариант не влез в лимит — берём самое сильное сжатие.
-            attempts += 1
-            await report(0.9, "Лимит недостижим, жмём по максимуму")
-            candidate = workdir / f"final{EXTENSIONS[options.format]}"
-            await _run(build_args(source, candidate, options, info, 1, alpha_used))
-            best_path, best_size, best_quality = candidate, candidate.stat().st_size, 1
-
-        if output.exists():
-            output.unlink()
-        shutil.move(str(best_path), str(output))
+        await _run(build_args(source, output, options, info, options.quality, alpha_used))
+        size = output.stat().st_size
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
         if paint_dir:
             shutil.rmtree(paint_dir, ignore_errors=True)
-
     await report(1.0, "Готово")
-    return _result(
-        output, best_size, info, options, best_quality, attempts,
-        best_size <= target_bytes,
-    )
+    return _result(output, size, info, options, options.quality)
 
 
 def _result(
@@ -401,8 +340,6 @@ def _result(
     info: MediaInfo,
     options: ImageOptions,
     quality: int,
-    attempts: int,
-    within: bool,
 ) -> ImageResult:
     width = info.video.width if info.video else 0
     height = info.video.height if info.video else 0
@@ -417,6 +354,4 @@ def _result(
         width=width or 0,
         height=height or 0,
         quality_used=quality,
-        attempts=attempts,
-        within_target=within,
     )

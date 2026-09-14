@@ -476,12 +476,7 @@ def describe(request: ExportRequest) -> dict[str, Any]:
     """Краткое человекочитаемое описание того, что произойдёт с файлом."""
     if request.kind == "image":
         image = request.image
-        limit = (
-            f"лимит {image.target_kb} КБ"
-            if image.target_kb
-            else f"качество {image.quality}"
-        )
-        parts = [image.format.upper(), limit]
+        parts = [image.format.upper(), f"качество {image.quality}"]
         if image.max_dimension:
             parts.append(f"до {image.max_dimension}px")
         return {"summary": " · ".join(parts)}

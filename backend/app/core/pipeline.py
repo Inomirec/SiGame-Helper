@@ -16,7 +16,7 @@ from ..models import (
     FrameGrabRequest,
     RawCommandRequest,
 )
-from . import binaries, download, encode, fsutil, images, presets, toolchain
+from . import binaries, download, encode, fsutil, images, presets, toolchain, trash
 from .events import bus
 from .jobs import Job, JobContext, manager, run_ffmpeg
 from .probe import probe
@@ -88,15 +88,20 @@ def submit_export(request: ExportRequest) -> Job:
 
             result = await images.compress(source, output, request.image, report)
             if request.image.replace_original and output.exists():
-                source.unlink(missing_ok=True)
-                ctx.log(f"Исходник удалён: {source.name}")
+                # В корзину, а не насовсем: галочка запоминается между файлами,
+                # и человек легко забудет, что она включена.
+                try:
+                    trash.to_trash(source)
+                    ctx.log(f"Исходник убран в корзину: {source.name}")
+                except OSError as exc:
+                    # Сжатие уже прошло, результат на месте — ронять из-за
+                    # занятого исходника всю задачу незачем.
+                    ctx.log(f"Исходник не удалось убрать в корзину: {exc}")
             ctx.meta(
                 sizeAfter=result.size,
                 width=result.width,
                 height=result.height,
                 qualityUsed=result.quality_used,
-                attempts=result.attempts,
-                withinTarget=result.within_target,
             )
         else:
             info = await probe(source)
@@ -231,7 +236,12 @@ def submit_raw_command(request: RawCommandRequest) -> Job:
 # --- стоп-кадр из видео -------------------------------------------------
 
 def submit_frame_grab(request: FrameGrabRequest) -> Job:
-    """Вытаскивает кадр из видео и сразу сжимает его как обычную картинку."""
+    """Сохраняет кадр из видео как есть, без сжатия.
+
+    Кнопка нужна, чтобы забрать картинку из ролика — в том же разрешении и
+    том же качестве, что и сам ролик. Если её потом нужно сжать, для этого
+    есть обычная панель картинок: сжимать дважды подряд смысла нет.
+    """
     source = fsutil.safe_path(request.source)
 
     async def runner(ctx: JobContext) -> None:
@@ -244,12 +254,9 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
 
         stamp = f"{int(request.time // 60):02d}-{request.time % 60:05.2f}".replace(".", "_")
         stem = fsutil.sanitize_name(f"{source.stem}{request.suffix} {stamp}", fallback="кадр")
-        output = fsutil.unique_path(directory / f"{stem}{images.EXTENSIONS[request.image.format]}")
+        output = fsutil.unique_path(directory / f"{stem}.png")
         ctx.job.output = str(output)
 
-        # Сначала кладём кадр в PNG без потерь, чтобы сжатие работало с чистым
-        # исходником, а не с уже испорченной картинкой.
-        raw = directory / f".{stem}.png"
         ctx.progress(0.15, "Достаю кадр")
         args = [
             binaries.ffmpeg(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
@@ -257,7 +264,7 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
             "-i", str(source),
             "-frames:v", "1",
             "-c:v", "png",
-            str(raw),
+            str(output),
         ]
         ctx.log("$ " + encode.to_display_string(args))
         process = await asyncio.create_subprocess_exec(
@@ -273,26 +280,18 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
         finally:
             ctx.untrack(process)
 
-        if process.returncode != 0 or not raw.exists():
+        if process.returncode != 0 or not output.exists():
             raise RuntimeError(
                 err.decode("utf-8", "replace").strip()[:300] or "не удалось получить кадр"
             )
 
-        try:
-            async def report(value: float, message: str) -> None:
-                ctx.progress(0.2 + value * 0.8, message)
-
-            result = await images.compress(raw, output, request.image, report)
-            ctx.meta(
-                sizeBefore=raw.stat().st_size,
-                sizeAfter=result.size,
-                width=result.width,
-                height=result.height,
-                withinTarget=result.within_target,
-            )
-        finally:
-            raw.unlink(missing_ok=True)
-
+        info = await probe(output)
+        stream = info.video if info else None
+        ctx.meta(
+            sizeAfter=output.stat().st_size,
+            width=stream.width if stream else 0,
+            height=stream.height if stream else 0,
+        )
         ctx.progress(1.0, "Готово")
         bus.publish("library.changed", {"path": str(directory)})
 
@@ -302,8 +301,9 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
         runner=runner,
         pool="image",
         source=str(source),
-        meta={"preset": f"стоп-кадр · {request.image.format.upper()}", "kind": "image"},
+        meta={"preset": "стоп-кадр · PNG", "kind": "image"},
     )
+
 
 # --- скачивание ---------------------------------------------------------
 

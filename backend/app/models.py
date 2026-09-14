@@ -111,11 +111,7 @@ class ImageOptions(BaseModel):
     paint_png: str | None = None
     #: Обрезка кадра. ``None`` = оставить как есть.
     crop: Rect | None = None
-    #: Целевой вес файла в килобайтах. ``None`` = использовать ``quality``.
-    target_kb: int | None = Field(default=100, ge=5, le=20000)
-    #: Сколько итераций подбора качества делать при заданном ``target_kb``.
-    passes: int = Field(default=4, ge=1, le=8)
-    #: Качество 1-100, когда целевой вес не задан.
+    #: Качество 1-100.
     quality: int = Field(default=80, ge=1, le=100)
     #: Ограничение по длинной стороне в пикселях (0 = не менять).
     max_dimension: int = Field(default=1920, ge=0, le=16384)
@@ -205,7 +201,6 @@ class FrameGrabRequest(BaseModel):
     source: str
     #: Момент в секундах, с которого берём кадр.
     time: float = Field(ge=0)
-    image: ImageOptions = Field(default_factory=ImageOptions)
     output_dir: str | None = None
     suffix: str = "_кадр"
 

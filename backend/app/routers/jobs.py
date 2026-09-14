@@ -103,9 +103,7 @@ async def preview(request: ExportRequest) -> dict[str, Any]:
     if request.kind == "image":
         return {
             "summary": (
-                f"{request.image.format.upper()} · "
-                + (f"лимит {request.image.target_kb} КБ"
-                   if request.image.target_kb else f"качество {request.image.quality}")
+                f"{request.image.format.upper()} · качество {request.image.quality}"
             ),
             "command": None,
         }

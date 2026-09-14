@@ -60,12 +60,6 @@ class ExportSettings(BaseModel):
     #: маленькая, и на хорошем процессоре их идёт много, даже когда видео
     #: тянется по одному.
     image_concurrency: int = Field(default=1, ge=1, le=16)
-    #: Пресет видео, выбранный по умолчанию.
-    default_video_preset: str = "av1_720_balanced"
-    #: Пресет аудио, выбранный по умолчанию.
-    default_audio_preset: str = "opus_96"
-    #: Пресет изображений, выбранный по умолчанию.
-    default_image_preset: str = "avif_100kb"
 
 
 class Settings(BaseModel):

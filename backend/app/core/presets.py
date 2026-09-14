@@ -139,7 +139,6 @@ def _image(
     hint: str,
     *,
     fmt: str = "avif",
-    target_kb: int | None = None,
     quality: int = 80,
     max_dimension: int = 1920,
     effort: int = 4,
@@ -160,11 +159,9 @@ def _image(
         "options": {
             "image": {
                 "format": fmt,
-                "target_kb": target_kb,
                 "quality": quality,
                 "max_dimension": max_dimension,
                 "effort": effort,
-                "passes": 4,
             }
         },
     }

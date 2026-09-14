@@ -11,10 +11,6 @@ import { Button, Section, Segmented, Select, Toggle } from './ui'
 
 const DEFAULT_IMAGE: ImageOptions = {
   format: 'avif',
-  // Подбор веса выключен: AVIF влезал во все лимиты сразу, и четыре прохода
-  // кодирования уходили впустую — три «разных» пресета давали один файл.
-  target_kb: null,
-  passes: 4,
   quality: 94,
   max_dimension: 1600,
   effort: 4,

@@ -252,18 +252,14 @@ export function MediaEditor({
     onTrimChange({ in: start ?? 0, out: value })
   }, [onTrimChange, trim.in])
 
-  /** Сохраняет текущий кадр отдельной картинкой — для вопросов-угадаек. */
+  /** Сохраняет текущий кадр картинкой как есть — для вопросов-угадаек. */
   const grabFrame = useCallback(async () => {
     const media = mediaRef.current
     if (!media || !isVideo) return
     setGrabbing(true)
     try {
-      await api.exportFrame({
-        source: file.path,
-        time: media.currentTime,
-        image: { format: 'avif', target_kb: 100, max_dimension: 1920, effort: 4 },
-      })
-      toast('Кадр сохранён в очередь — появится в подпапке «Обработанное»', 'ok')
+      await api.exportFrame({ source: file.path, time: media.currentTime })
+      toast('Кадр сохранён в подпапку «Обработанное» — без сжатия, как в видео', 'ok')
       setQueueOpen(true)
     } catch (error) {
       toast((error as Error).message, 'error')

@@ -204,11 +204,6 @@ function JobRow({
             {compression}
           </span>
         )}
-        {job.meta?.withinTarget === false && (
-          <span className="chip shrink-0 bg-warn/15 text-warn" title="Не удалось уложиться в лимит веса">
-            лимит не достигнут
-          </span>
-        )}
 
         {running && (
           <span className="w-24 shrink-0">
