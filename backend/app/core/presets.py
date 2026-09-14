@@ -113,11 +113,13 @@ def _audio(
     mono: bool = False,
     accent: str = "emerald",
 ) -> dict[str, Any]:
+    names = {"opus": "Opus", "mp3": "MP3", "aac": "AAC", "flac": "FLAC"}
     return {
         "id": ident,
         "kind": "audio",
         "label": label,
         "hint": hint,
+        "tech": f"{names.get(codec, codec.upper())} · {bitrate} кбит/с",
         "accent": accent,
         "options": {
             "audio": {
@@ -262,25 +264,25 @@ VIDEO_PRESETS: list[dict[str, Any]] = [
 AUDIO_PRESETS: list[dict[str, Any]] = [
     _audio(
         "opus_96",
-        "Пак · Opus 96k",
-        "Стандарт для вопросов: по качеству ≈ MP3 160k, вес втрое меньше.",
+        "Баланс",
+        "Обычный выбор для вопросов. Звучит примерно как MP3 160, а весит "
+        "втрое меньше.",
     ),
     _audio(
         "opus_128_music",
-        "Музыка · Opus 128k",
-        "Если в вопросе играет музыка и слышны артефакты на 96k.",
+        "Качество",
+        "Для музыки: берите, если на «Балансе» слышны призвуки.",
         bitrate=128,
     ),
     _audio(
         "opus_64_voice",
-        "Речь · Opus 64k моно",
-        "Голос, подкасты, цитаты. Минимальный вес без потери разборчивости.",
+        "Экономия",
+        "Для речи и цитат: разборчиво и совсем лёгкое.",
         bitrate=64,
-        mono=True,
     ),
     _audio(
         "mp3_192_compat",
-        "Совместимость · MP3 192k",
+        "MP3",
         "Для старых плееров и сайтов, которые не понимают Opus.",
         codec="mp3",
         bitrate=192,

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderOpen, Play, Terminal } from 'lucide-react'
+import { Play, Terminal } from 'lucide-react'
 import { api } from '../lib/api'
-import { FolderPicker } from './FolderPicker'
 import { humanSize, plural, timecode } from '../lib/format'
 import type { AudioOptions, FileInfo, Preset, VideoOptions } from '../lib/types'
 import { useStore } from '../store'
@@ -35,13 +34,6 @@ const DEFAULT_AUDIO: AudioOptions = {
   mono: false,
 }
 
-/**
- * Панель экспорта видео и звука.
- *
- * Здесь намеренно нет кодеков, CRF и контейнеров: всё это спрятано в пресеты.
- * Наружу вынесено только то, что человек может осмысленно решить сам — что
- * сделать со звуком и как назвать файл.
- */
 const SUBFOLDER_KEY = 'sgh.outputSubfolder'
 
 /** Папка, в которой лежит файл. Без регулярки: в путях Windows обратный
@@ -51,6 +43,13 @@ function folderOf(path: string): string {
   return cut > 0 ? path.slice(0, cut) : path
 }
 
+/**
+ * Панель экспорта видео и звука.
+ *
+ * Здесь намеренно нет кодеков, CRF и контейнеров: всё это спрятано в пресеты.
+ * Наружу вынесено только то, что человек может осмысленно решить сам — что
+ * сделать со звуком и как назвать файл.
+ */
 export function ExportPanel({
   file,
   trim,
@@ -90,15 +89,11 @@ export function ExportPanel({
   }
   const [busy, setBusy] = useState(false)
   const [command, setCommand] = useState<string | null>(null)
-  // Куда класть результат: рядом с исходником или в выбранную папку.
-  const [nearSource, setNearSource] = useState(true)
   // Складывать в подпапку или прямо рядом с исходником. Запоминаем: выбор
   // делают один раз под свою привычку раскладывать файлы.
   const [intoSubfolder, setIntoSubfolder] = useState(
     () => localStorage.getItem(SUBFOLDER_KEY) !== 'off',
   )
-  const [outputDir, setOutputDir] = useState('')
-  const [pickingFolder, setPickingFolder] = useState(false)
 
   // При первом показе (и при смене типа файла) берём пресет по умолчанию.
   useEffect(() => {
@@ -148,12 +143,8 @@ export function ExportPanel({
   const buildRequest = (source: string, withTrim: boolean) => ({
     source,
     kind: file.kind,
-    // Рядом с исходником без подпапки — это просто его собственная папка.
-    output_dir: nearSource
-      ? intoSubfolder
-        ? null
-        : folderOf(source)
-      : outputDir.trim() || null,
+    // Без подпапки результат кладём прямо в папку исходника.
+    output_dir: intoSubfolder ? null : folderOf(source),
     trim: withTrim ? { start: trim.in, end: trim.out } : { start: null, end: null },
     // Затухания нарисованы на дорожках открытого файла — в пакет их не тащим.
     video: {
@@ -232,7 +223,7 @@ export function ExportPanel({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presetId, video, audio, streamCopy, trim.in, trim.out, nearSource, intoSubfolder, outputDir])
+  }, [presetId, video, audio, streamCopy, trim.in, trim.out, intoSubfolder])
 
   /** Запускает команду в том виде, в каком её оставил пользователь. */
   async function runRaw() {
@@ -322,46 +313,6 @@ export function ExportPanel({
         </Section>
 
 
-        <Section title="Куда складывать результат">
-          <div className="space-y-1 rounded-xl bg-surface-2 px-3 py-2.5">
-            <Toggle
-              checked={nearSource}
-              onChange={setNearSource}
-              label="Рядом с исходником"
-              hint="Результат ляжет там же, где лежит исходный файл. Оригинал не трогаем."
-            />
-            {nearSource && (
-              <Toggle
-                checked={intoSubfolder}
-                onChange={(value) => {
-                  setIntoSubfolder(value)
-                  localStorage.setItem(SUBFOLDER_KEY, value ? 'on' : 'off')
-                }}
-                label="В подпапку «Обработанное»"
-                hint="Выключите, если хотите видеть результат прямо рядом с исходником, без лишней папки."
-              />
-            )}
-          </div>
-          {!nearSource && (
-            <div className="flex gap-2">
-              <input
-                className="field font-mono text-[12px]"
-                value={outputDir}
-                placeholder="Выберите папку…"
-                onChange={(event) => setOutputDir(event.target.value)}
-              />
-              <Button onClick={() => setPickingFolder(true)}>
-                <FolderOpen size={14} />
-              </Button>
-            </div>
-          )}
-          <p className="text-[11px] leading-snug text-ink-faint">
-            К имени добавится приписка{' '}
-            <span className="font-mono text-ink-dim">{suffix}</span> — по названию
-            пресета.
-          </p>
-        </Section>
-
         <Section title="Остальные настройки">
           <div className="space-y-1 rounded-xl bg-surface-2 px-3 py-2.5">
             {!streamCopy && !isAudio && status?.gpuAvailable && (
@@ -385,6 +336,15 @@ export function ExportPanel({
               disabled={streamCopy}
               label="Перевести звук в моно"
               hint="Делает звук более плоским, но и понижает вес файла примерно на треть."
+            />
+            <Toggle
+              checked={intoSubfolder}
+              onChange={(value) => {
+                setIntoSubfolder(value)
+                localStorage.setItem(SUBFOLDER_KEY, value ? 'on' : 'off')
+              }}
+              label="Положить результат в подпапку"
+              hint="Программа создаст подпапку «Обработанное», если её ещё нет, и сложит файл туда. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
             />
             <Toggle
               checked={command !== null}
@@ -422,13 +382,6 @@ export function ExportPanel({
 
 
       </div>
-
-      <FolderPicker
-        open={pickingFolder}
-        onClose={() => setPickingFolder(false)}
-        title="Куда складывать результат"
-        onPick={(path) => setOutputDir(path)}
-      />
 
       {/* Нижняя панель действий */}
       <div className="space-y-2 border-t border-line-soft bg-surface px-4 py-3">
