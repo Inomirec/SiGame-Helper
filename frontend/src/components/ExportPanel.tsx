@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Play, Terminal } from 'lucide-react'
 import { api } from '../lib/api'
-import { humanSize, plural, timecode } from '../lib/format'
+import { humanSize, parentDir, plural, timecode } from '../lib/format'
+import { loadPrefs, savePrefs } from '../lib/prefs'
 import type { AudioOptions, FileInfo, Preset, VideoOptions } from '../lib/types'
 import { useStore } from '../store'
 import type { TrimState } from './MediaEditor'
@@ -32,49 +33,6 @@ const DEFAULT_AUDIO: AudioOptions = {
   fade_in: 0,
   fade_out: 0,
   mono: false,
-}
-
-const SUBFOLDER_KEY = 'sgh.outputSubfolder'
-const PREFS_KEY = 'sgh.exportPrefs'
-
-/** Настройки, которые человек выставляет под себя, а не под конкретный файл. */
-interface Prefs {
-  use_gpu?: boolean
-  max_height?: number
-  loudnorm?: boolean
-  mono?: boolean
-  videoPreset?: string
-  audioPreset?: string
-}
-
-function loadPrefs(): Prefs {
-  try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') as Prefs
-  } catch {
-    return {}
-  }
-}
-
-/**
- * Запоминает выбор человека.
- *
- * Панель пересоздаётся при каждой смене файла, поэтому без этого галочки
- * сбрасывались бы к умолчанию, и «на видеокарте» приходилось бы включать
- * заново для каждого ролика.
- */
-function savePrefs(patch: Prefs): void {
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...patch }))
-  } catch {
-    // Приватный режим браузера — тогда просто не запомним.
-  }
-}
-
-/** Папка, в которой лежит файл. Без регулярки: в путях Windows обратный
- *  слэш, и экранирование в нём слишком легко потерять. */
-function folderOf(path: string): string {
-  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
-  return cut > 0 ? path.slice(0, cut) : path
 }
 
 /**
@@ -140,7 +98,7 @@ export function ExportPanel({
   // Складывать в подпапку или прямо рядом с исходником. Запоминаем: выбор
   // делают один раз под свою привычку раскладывать файлы.
   const [intoSubfolder, setIntoSubfolder] = useState(
-    () => localStorage.getItem(SUBFOLDER_KEY) !== 'off',
+    () => loadPrefs().subfolder ?? localStorage.getItem('sgh.outputSubfolder') !== 'off',
   )
 
   // При первом показе (и при смене типа файла) берём пресет по умолчанию.
@@ -197,7 +155,7 @@ export function ExportPanel({
     source,
     kind: file.kind,
     // Без подпапки результат кладём прямо в папку исходника.
-    output_dir: intoSubfolder ? null : folderOf(source),
+    output_dir: intoSubfolder ? null : parentDir(source),
     trim: withTrim ? { start: trim.in, end: trim.out } : { start: null, end: null },
     // Затухания нарисованы на дорожках открытого файла — в пакет их не тащим.
     video: {
@@ -406,7 +364,7 @@ export function ExportPanel({
               checked={intoSubfolder}
               onChange={(value) => {
                 setIntoSubfolder(value)
-                localStorage.setItem(SUBFOLDER_KEY, value ? 'on' : 'off')
+                savePrefs({ subfolder: value })
               }}
               label="Положить результат в подпапку"
               hint="Программа создаст подпапку «Обработанное», если её ещё нет, и сложит файл туда. Если выключить — результат ляжет в ту же папку, где лежит оригинал."

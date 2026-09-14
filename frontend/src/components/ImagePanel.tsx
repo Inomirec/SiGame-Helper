@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Play } from 'lucide-react'
 import { api } from '../lib/api'
-import { humanSize, plural } from '../lib/format'
+import { humanSize, parentDir, plural } from '../lib/format'
+import { loadPrefs, savePrefs } from '../lib/prefs'
 import { strokesToPng } from '../lib/paint'
 import type { FileInfo, ImageOptions, ImagePreview, Preset } from '../lib/types'
 import { useStore } from '../store'
@@ -74,9 +75,21 @@ export function ImagePanel({
   const setQueueOpen = useStore((state) => state.setQueueOpen)
 
   const imagePresets: Preset[] = useMemo(() => presets.image ?? [], [presets])
-  const [options, setOptions] = useState<ImageOptions>(DEFAULT_IMAGE)
+  // Панель пересоздаётся при смене файла, поэтому выбор человека держим
+  // в общем хранилище — иначе всё сбрасывалось бы на каждой картинке.
+  const [options, setOptions] = useState<ImageOptions>(() => {
+    const prefs = loadPrefs()
+    return {
+      ...DEFAULT_IMAGE,
+      ...prefs.image,
+      replace_original: prefs.imageReplace ?? DEFAULT_IMAGE.replace_original,
+    } as ImageOptions
+  })
+  const [intoSubfolder, setIntoSubfolder] = useState(
+    () => loadPrefs().subfolder ?? localStorage.getItem('sgh.outputSubfolder') !== 'off',
+  )
   const [busy, setBusy] = useState(false)
-  const [showPreview, setShowPreview] = useState(true)
+  const [showPreview, setShowPreview] = useState(() => loadPrefs().imagePreview ?? true)
   const [preview, setPreview] = useState<ImagePreview | null>(null)
   const [previewBusy, setPreviewBusy] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -92,6 +105,22 @@ export function ImagePanel({
       values.max_dimension === options.max_dimension
     )
   })
+
+  // Настройки сжатия храним, а правки кадра — нет: они про конкретную картинку.
+  useEffect(() => {
+    savePrefs({
+      image: {
+        format: options.format,
+        quality: options.quality,
+        max_dimension: options.max_dimension,
+      },
+      imageReplace: options.replace_original,
+    })
+  }, [options.format, options.quality, options.max_dimension, options.replace_original])
+
+  useEffect(() => {
+    savePrefs({ imagePreview: showPreview })
+  }, [showPreview])
 
   const hasEdits = Boolean(edit.crop) || edit.boxes.length > 0 || edit.strokes.length > 0
 
@@ -158,6 +187,8 @@ export function ImagePanel({
       boxes: withEdits ? editPayload.boxes : [],
       paint_png: withEdits ? editPayload.paint_png : null,
     },
+    // Без подпапки результат ложится прямо туда, где лежал оригинал.
+    output_dir: intoSubfolder ? null : parentDir(source),
     suffix: SUFFIXES[options.format] ?? '_сжатый',
     preset_label: activePreset?.label,
   })
@@ -308,6 +339,15 @@ export function ImagePanel({
             onChange={setShowPreview}
             label="Показывать превью"
             hint="Каждое движение ползунка пересчитывает картинку по-настоящему. На слабой машине это заметно — тогда выключите."
+          />
+          <Toggle
+            checked={intoSubfolder}
+            onChange={(value) => {
+              setIntoSubfolder(value)
+              savePrefs({ subfolder: value })
+            }}
+            label="Положить результат в подпапку"
+            hint="Программа создаст подпапку «Обработанное», если её ещё нет, и сложит файл туда. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
           />
           <Toggle
             checked={options.replace_original}

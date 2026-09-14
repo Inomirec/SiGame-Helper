@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from './lib/api'
+import { parentDir } from './lib/format'
 import type {
   AppSettings,
   FileInfo,
@@ -69,13 +70,6 @@ interface State {
 let toastId = 0
 /** Библиотеку перезагружаем не чаще раза в 400 мс: событий от задач много. */
 let libraryTimer: ReturnType<typeof setTimeout> | null = null
-
-/** Папка, в которой лежит файл. Без регулярки: в путях Windows обратный
- *  слэш, и экранирование в нём слишком легко потерять. */
-function folderOf(path: string): string {
-  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
-  return cut > 0 ? path.slice(0, cut) : path
-}
 
 export const useStore = create<State>((set, get) => ({
   ready: false,
@@ -217,7 +211,7 @@ export const useStore = create<State>((set, get) => ({
     // Файл может лежать где угодно, а программа работает только внутри
     // рабочих папок. Поэтому сначала пробуем открыть как есть, и лишь если
     // не пустило — добавляем его папку в рабочие.
-    const folder = folderOf(path)
+    const folder = parentDir(path)
     try {
       await api.fileInfo(path)
     } catch {

@@ -19,19 +19,12 @@ import {
   Video,
 } from 'lucide-react'
 import { api, thumbUrl } from '../lib/api'
-import { humanSize } from '../lib/format'
+import { fileName, humanSize } from '../lib/format'
 import type { LibraryFile } from '../lib/types'
 import { useStore, type FilterKind } from '../store'
 import { Button, IconButton, Modal, Segmented, Spinner } from './ui'
 
 const LAYOUT_KEY = 'sgh.libraryLayout'
-
-/** Имя файла из полного пути. Без регулярки: в путях Windows обратный слэш,
- *  и экранирование в нём теряется слишком легко. */
-function fileName(path: string): string {
-  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
-  return cut >= 0 ? path.slice(cut + 1) : path
-}
 
 type SortKey = 'name' | 'size' | 'modified' | 'kind'
 
