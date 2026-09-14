@@ -160,6 +160,21 @@
   animation: sgh-fade-up 0.16s ease-out both;
 }
 
+/* То же, но сверху вниз — для плашек, висящих под шапкой. */
+@keyframes sgh-fade-down {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-in-down {
+  animation: sgh-fade-down 0.16s ease-out both;
+}
+
 @keyframes sgh-pulse {
   0%,
   100% {

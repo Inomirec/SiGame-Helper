@@ -1,6 +1,20 @@
 import { useEffect } from 'react'
+import { plural } from '../lib/format'
 import { scheduleLibraryRefresh, useStore } from '../store'
 import type { Job } from '../lib/types'
+
+/**
+ * Пачка файлов заканчивается очередью сообщений подряд. Пока они идут,
+ * показываем одну плашку со счётчиком вместо сотни отдельных.
+ */
+let doneStreak = 0
+let doneAt = 0
+let failStreak = 0
+let failAt = 0
+
+function streak(previous: number, at: number): number {
+  return Date.now() - at > 5000 ? 1 : previous + 1
+}
 
 /**
  * Одно SSE-соединение на всё приложение: прогресс задач, изменения медиатеки.
@@ -36,9 +50,25 @@ export function useEvents() {
           const job = payload.data as Job
           store.upsertJob(job)
           if (job.status === 'error') {
-            store.toast(`«${job.title}» — ошибка: ${job.error ?? 'неизвестно'}`, 'error')
+            failStreak = streak(failStreak, failAt)
+            failAt = Date.now()
+            store.toast(
+              failStreak === 1
+                ? `«${job.title}» — ошибка: ${job.error ?? 'неизвестно'}`
+                : `Не удалось обработать ${failStreak} ${plural(failStreak, ['файл', 'файла', 'файлов'])} — подробности в очереди`,
+              'error',
+              'job-error',
+            )
           } else if (job.status === 'done') {
-            store.toast(`Готово: ${job.title}`, 'ok')
+            doneStreak = streak(doneStreak, doneAt)
+            doneAt = Date.now()
+            store.toast(
+              doneStreak === 1
+                ? `Готово: ${job.title}`
+                : `Готово: ${doneStreak} ${plural(doneStreak, ['файл', 'файла', 'файлов'])}`,
+              'ok',
+              'job-done',
+            )
           }
           scheduleLibraryRefresh()
           break

@@ -12,7 +12,13 @@ import type {
 } from './lib/types'
 
 export type FilterKind = 'all' | 'video' | 'audio' | 'image'
-export type Toast = { id: number; text: string; tone: 'info' | 'ok' | 'error' }
+export type Toast = {
+  id: number
+  text: string
+  tone: 'info' | 'ok' | 'error'
+  /** Плашки с одним ключом не копятся, а заменяют друг друга. */
+  group?: string
+}
 
 interface State {
   ready: boolean
@@ -62,12 +68,15 @@ interface State {
   clearChecked: () => void
   upsertJob: (job: Job) => void
   setConnected: (connected: boolean) => void
-  toast: (text: string, tone?: Toast['tone']) => void
+  toast: (text: string, tone?: Toast['tone'], group?: string) => void
   dismissToast: (id: number) => void
   setQueueOpen: (open: boolean) => void
 }
 
 let toastId = 0
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>()
+//: Сколько плашек показываем разом.
+const TOAST_LIMIT = 3
 /** Библиотеку перезагружаем не чаще раза в 400 мс: событий от задач много. */
 let libraryTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -285,13 +294,44 @@ export const useStore = create<State>((set, get) => ({
     set({ connected })
   },
 
-  toast(text, tone = 'info') {
+  toast(text, tone = 'info', group) {
+    const life = tone === 'error' ? 8000 : 4000
+
+    // Пачка из сотни картинок присылает сотню сообщений подряд. Если каждое
+    // показывать отдельной плашкой, они закрывают собой полэкрана — и кнопки
+    // очереди, до которых человек как раз и тянется.
+    if (group) {
+      const existing = get().toasts.find((item) => item.group === group)
+      if (existing) {
+        clearTimeout(toastTimers.get(existing.id))
+        set({
+          toasts: get().toasts.map((item) =>
+            item.id === existing.id ? { ...item, text, tone } : item,
+          ),
+        })
+        toastTimers.set(existing.id, setTimeout(() => get().dismissToast(existing.id), life))
+        return
+      }
+    }
+
     const id = ++toastId
-    set({ toasts: [...get().toasts, { id, text, tone }] })
-    setTimeout(() => get().dismissToast(id), tone === 'error' ? 8000 : 4000)
+    const next = [...get().toasts, { id, text, tone, group }]
+    // Больше трёх штук разом всё равно не прочитать, а места они занимают
+    // столько же, сколько вся правая панель.
+    while (next.length > TOAST_LIMIT) {
+      const dropped = next.shift()
+      if (dropped) {
+        clearTimeout(toastTimers.get(dropped.id))
+        toastTimers.delete(dropped.id)
+      }
+    }
+    set({ toasts: next })
+    toastTimers.set(id, setTimeout(() => get().dismissToast(id), life))
   },
 
   dismissToast(id) {
+    clearTimeout(toastTimers.get(id))
+    toastTimers.delete(id)
     set({ toasts: get().toasts.filter((item) => item.id !== id) })
   },
 

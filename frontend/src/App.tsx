@@ -229,12 +229,16 @@ export default function App() {
         onPick={(path) => void chooseWorkspace(path)}
       />
 
-      {/* Всплывающие уведомления */}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
+      {/* Всплывающие уведомления.
+
+          Висят сверху по центру, а не в углу: справа внизу они ложились
+          ровно на кнопки очереди — сравнение, папку и журнал, — и до них
+          нельзя было дотянуться, пока плашки не пропадут сами. */}
+      <div className="pointer-events-none fixed left-1/2 top-[58px] z-50 flex w-80 -translate-x-1/2 flex-col gap-2">
         {toasts.map((item) => (
           <div
             key={item.id}
-            className={`animate-in-up pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3 py-2.5 shadow-lg backdrop-blur ${
+            className={`animate-in-down pointer-events-auto flex items-start gap-2.5 rounded-xl border px-3 py-2.5 shadow-lg backdrop-blur ${
               item.tone === 'error'
                 ? 'border-danger/40 bg-danger/12 text-danger'
                 : item.tone === 'ok'
