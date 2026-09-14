@@ -46,6 +46,24 @@ export function CompareModal({
 
   const [position, setPosition] = useState(50)
   const [dragging, setDragging] = useState(false)
+  // Масштаб и сдвиг. Накладываются на сами кадры, а не на общую обёртку:
+  // шторка должна остаться на месте, она живёт в экранных координатах.
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [panning, setPanning] = useState(false)
+  const spaceRef = useRef(false)
+  const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
+  const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } })
+  viewRef.current = { zoom, pan }
+
+  /** Одинаковое преобразование для обоих кадров — иначе сравнивать нечего. */
+  const frameStyle = { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }
+
+  const resetView = useCallback(() => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }, [])
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -148,6 +166,89 @@ export function CompareModal({
     setTime(value)
   }
 
+  // Колесо приближает к точке под курсором: разглядывают всегда конкретное
+  // место кадра, а не его середину.
+  useEffect(() => {
+    const shell = shellRef.current
+    if (!shell || !open) return
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      const box = shell.getBoundingClientRect()
+      const mx = event.clientX - (box.left + box.width / 2)
+      const my = event.clientY - (box.top + box.height / 2)
+      const { zoom: current, pan: offset } = viewRef.current
+      const next = Math.min(16, Math.max(1, current * (event.deltaY < 0 ? 1.2 : 1 / 1.2)))
+      if (next === current) return
+      const ratio = next / current
+      setZoom(next)
+      setPan(
+        next === 1
+          ? { x: 0, y: 0 }
+          : { x: mx - ratio * (mx - offset.x), y: my - ratio * (my - offset.y) },
+      )
+    }
+
+    shell.addEventListener('wheel', onWheel, { passive: false })
+    return () => shell.removeEventListener('wheel', onWheel)
+  }, [open])
+
+  // Пробел — временный режим руки: левая кнопка занята шторкой.
+  useEffect(() => {
+    if (!open) return
+    const down = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      if (event.code !== 'Space') return
+      event.preventDefault()
+      spaceRef.current = true
+      setSpaceHeld(true)
+    }
+    const up = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return
+      spaceRef.current = false
+      setSpaceHeld(false)
+    }
+    const blur = () => {
+      spaceRef.current = false
+      setSpaceHeld(false)
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', blur)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!panning) return
+    const move = (event: PointerEvent) => {
+      const start = panRef.current
+      if (!start) return
+      setPan({ x: start.px + (event.clientX - start.x), y: start.py + (event.clientY - start.y) })
+    }
+    const stop = () => {
+      panRef.current = null
+      setPanning(false)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+  }, [panning])
+
+  // Новое сравнение — прежний масштаб ни к чему.
+  useEffect(() => {
+    if (!open) resetView()
+  }, [open, resetView])
+
   const delta = savings(sizeBefore, sizeAfter)
 
   return (
@@ -155,11 +256,23 @@ export function CompareModal({
       <div className="space-y-3">
         <div
           ref={shellRef}
-          className="relative flex min-h-[240px] select-none items-center overflow-hidden rounded-xl bg-black"
+          className={`relative flex min-h-[240px] select-none items-center overflow-hidden rounded-xl bg-black ${
+            panning ? 'cursor-grabbing' : spaceHeld ? 'cursor-grab' : 'cursor-ew-resize'
+          }`}
           onPointerDown={(event) => {
+            // Средняя кнопка и пробел двигают кадр, левая — тянет шторку.
+            if (event.button === 1 || (event.button === 0 && spaceRef.current)) {
+              event.preventDefault()
+              panRef.current = { x: event.clientX, y: event.clientY, px: pan.x, py: pan.y }
+              setPanning(true)
+              return
+            }
+            if (event.button !== 0) return
             setDragging(true)
             moveTo(event.clientX)
           }}
+          onAuxClick={(event) => event.preventDefault()}
+          onDragStart={(event) => event.preventDefault()}
         >
           {kind === 'image' ? (
             <>
@@ -167,6 +280,7 @@ export function CompareModal({
                 src={mediaUrl(after)}
                 alt="после"
                 className="block max-h-[58vh] w-full object-contain"
+                style={frameStyle}
                 draggable={false}
                 onError={() => setFailed(true)}
               />
@@ -178,6 +292,7 @@ export function CompareModal({
                   src={mediaUrl(before)}
                   alt="до"
                   className="block max-h-[58vh] w-full object-contain"
+                style={frameStyle}
                   draggable={false}
                 />
               </div>
@@ -188,6 +303,7 @@ export function CompareModal({
                 ref={rightVideo}
                 src={mediaUrl(after)}
                 className="block max-h-[58vh] w-full object-contain"
+                style={frameStyle}
                 muted
                 playsInline
                 onLoadedMetadata={(event) => {
@@ -210,6 +326,7 @@ export function CompareModal({
                   ref={leftVideo}
                   src={mediaUrl(before)}
                   className="block max-h-[58vh] w-full object-contain"
+                style={frameStyle}
                   playsInline
                   onLoadedData={(event) => {
                     event.currentTarget.currentTime = toBefore(0.04)
@@ -228,6 +345,19 @@ export function CompareModal({
               ⇔
             </span>
           </div>
+
+          {/* Масштаб: показывает текущий и возвращает исходный вид */}
+          {(zoom !== 1 || pan.x !== 0 || pan.y !== 0) && (
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={resetView}
+              title="Вернуть исходный вид. Колесо — приблизить, средняя кнопка или пробел — двигать"
+              className="absolute bottom-2 right-2 rounded-lg bg-black/70 px-2 py-1 font-mono text-[11px] tabular-nums text-white/80 ring-1 ring-white/20 hover:text-white"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+          )}
 
           {failed && (
             <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-[12.5px] leading-relaxed text-warn">

@@ -42,6 +42,15 @@ const DEFAULT_AUDIO: AudioOptions = {
  * Наружу вынесено только то, что человек может осмысленно решить сам — что
  * сделать со звуком и как назвать файл.
  */
+const SUBFOLDER_KEY = 'sgh.outputSubfolder'
+
+/** Папка, в которой лежит файл. Без регулярки: в путях Windows обратный
+ *  слэш, и экранирование в нём слишком легко потерять. */
+function folderOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+  return cut > 0 ? path.slice(0, cut) : path
+}
+
 export function ExportPanel({
   file,
   trim,
@@ -83,6 +92,11 @@ export function ExportPanel({
   const [command, setCommand] = useState<string | null>(null)
   // Куда класть результат: рядом с исходником или в выбранную папку.
   const [nearSource, setNearSource] = useState(true)
+  // Складывать в подпапку или прямо рядом с исходником. Запоминаем: выбор
+  // делают один раз под свою привычку раскладывать файлы.
+  const [intoSubfolder, setIntoSubfolder] = useState(
+    () => localStorage.getItem(SUBFOLDER_KEY) !== 'off',
+  )
   const [outputDir, setOutputDir] = useState('')
   const [pickingFolder, setPickingFolder] = useState(false)
 
@@ -134,7 +148,12 @@ export function ExportPanel({
   const buildRequest = (source: string, withTrim: boolean) => ({
     source,
     kind: file.kind,
-    output_dir: nearSource ? null : outputDir.trim() || null,
+    // Рядом с исходником без подпапки — это просто его собственная папка.
+    output_dir: nearSource
+      ? intoSubfolder
+        ? null
+        : folderOf(source)
+      : outputDir.trim() || null,
     trim: withTrim ? { start: trim.in, end: trim.out } : { start: null, end: null },
     // Затухания нарисованы на дорожках открытого файла — в пакет их не тащим.
     video: {
@@ -213,7 +232,7 @@ export function ExportPanel({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presetId, video, audio, streamCopy, trim.in, trim.out, nearSource, outputDir])
+  }, [presetId, video, audio, streamCopy, trim.in, trim.out, nearSource, intoSubfolder, outputDir])
 
   /** Запускает команду в том виде, в каком её оставил пользователь. */
   async function runRaw() {
@@ -308,9 +327,20 @@ export function ExportPanel({
             <Toggle
               checked={nearSource}
               onChange={setNearSource}
-              label="В подпапку рядом с исходником"
-              hint="Папка «Обработанное» появится там же, где лежит исходный файл. Оригинал не трогаем."
+              label="Рядом с исходником"
+              hint="Результат ляжет там же, где лежит исходный файл. Оригинал не трогаем."
             />
+            {nearSource && (
+              <Toggle
+                checked={intoSubfolder}
+                onChange={(value) => {
+                  setIntoSubfolder(value)
+                  localStorage.setItem(SUBFOLDER_KEY, value ? 'on' : 'off')
+                }}
+                label="В подпапку «Обработанное»"
+                hint="Выключите, если хотите видеть результат прямо рядом с исходником, без лишней папки."
+              />
+            )}
           </div>
           {!nearSource && (
             <div className="flex gap-2">
