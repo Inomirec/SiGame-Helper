@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../lib/api'
-import { fileName, humanSize, savings, shrinkRatio } from '../lib/format'
+import { fileName, humanSize, plural, savings, shrinkRatio } from '../lib/format'
 import type { Job } from '../lib/types'
 import { useStore } from '../store'
 import { CompareModal } from './CompareModal'
@@ -32,11 +32,23 @@ export function JobQueue() {
 
   const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running')
   const finished = jobs.filter((job) => job.status !== 'queued' && job.status !== 'running')
+  const done = jobs.filter((job) => job.status === 'done').length
+  const failed = jobs.filter((job) => job.status === 'error').length
   const overall = active.length
     ? active.reduce((sum, job) => sum + job.progress, 0) / active.length
     : 0
 
   const ordered = [...active].reverse().concat([...finished].reverse())
+
+  // Счётчик готовых мигает на каждом новом файле. Раньше о том же говорила
+  // всплывающая плашка, но она закрывала собой кнопки этой же строки, а при
+  // длинной очереди — и полэкрана. Сигнал нужен там, где и так смотрят.
+  const [blink, setBlink] = useState(0)
+  const seenDone = useRef(done)
+  useEffect(() => {
+    if (done > seenDone.current) setBlink((value) => value + 1)
+    seenDone.current = done
+  }, [done])
 
   return (
     <div
@@ -72,8 +84,22 @@ export function JobQueue() {
           </div>
         )}
 
+        {done > 0 && (
+          <span
+            key={blink}
+            className="animate-blink rounded-md bg-ok/12 px-2 py-1 text-[11.5px] font-medium text-ok ring-1 ring-ok/25"
+          >
+            Готово: {done} {plural(done, ['файл', 'файла', 'файлов'])}
+          </span>
+        )}
+
+        {failed > 0 && (
+          <span className="rounded-md bg-danger/12 px-2 py-1 text-[11.5px] font-medium text-danger ring-1 ring-danger/25">
+            {failed === 1 ? '1 ошибка' : `Ошибок: ${failed}`}
+          </span>
+        )}
+
         <span className="ml-auto flex items-center gap-2 text-[11px] text-ink-faint">
-          {finished.length > 0 && `выполнено: ${finished.length}`}
           {open ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
         </span>
       </button>

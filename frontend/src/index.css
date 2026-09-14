@@ -175,6 +175,22 @@
   animation: sgh-fade-down 0.16s ease-out both;
 }
 
+/* Короткая вспышка счётчика: сигнал заметен краем глаза, но ничего не
+   закрывает и не требует реакции. */
+@keyframes sgh-blink {
+  0% {
+    background-color: color-mix(in srgb, var(--color-ok) 45%, transparent);
+    color: var(--color-ink);
+  }
+  100% {
+    background-color: color-mix(in srgb, var(--color-ok) 12%, transparent);
+    color: var(--color-ok);
+  }
+}
+.animate-blink {
+  animation: sgh-blink 0.55s ease-out both;
+}
+
 @keyframes sgh-pulse {
   0%,
   100% {

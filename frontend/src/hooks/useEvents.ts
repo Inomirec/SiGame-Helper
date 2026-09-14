@@ -7,14 +7,8 @@ import type { Job } from '../lib/types'
  * Пачка файлов заканчивается очередью сообщений подряд. Пока они идут,
  * показываем одну плашку со счётчиком вместо сотни отдельных.
  */
-let doneStreak = 0
-let doneAt = 0
 let failStreak = 0
 let failAt = 0
-
-function streak(previous: number, at: number): number {
-  return Date.now() - at > 5000 ? 1 : previous + 1
-}
 
 /**
  * Одно SSE-соединение на всё приложение: прогресс задач, изменения медиатеки.
@@ -49,8 +43,12 @@ export function useEvents() {
         case 'job.finished': {
           const job = payload.data as Job
           store.upsertJob(job)
+          // Об успехе плашка не всплывает: об этом и так говорит строка
+          // очереди — счётчик готовых там же, где кнопки, к которым человек
+          // тянется следующим движением. Ошибку показываем, её легко
+          // пропустить: строка очереди одна, а ошибка требует решения.
           if (job.status === 'error') {
-            failStreak = streak(failStreak, failAt)
+            failStreak = Date.now() - failAt > 5000 ? 1 : failStreak + 1
             failAt = Date.now()
             store.toast(
               failStreak === 1
@@ -58,16 +56,6 @@ export function useEvents() {
                 : `Не удалось обработать ${failStreak} ${plural(failStreak, ['файл', 'файла', 'файлов'])} — подробности в очереди`,
               'error',
               'job-error',
-            )
-          } else if (job.status === 'done') {
-            doneStreak = streak(doneStreak, doneAt)
-            doneAt = Date.now()
-            store.toast(
-              doneStreak === 1
-                ? `Готово: ${job.title}`
-                : `Готово: ${doneStreak} ${plural(doneStreak, ['файл', 'файла', 'файлов'])}`,
-              'ok',
-              'job-done',
             )
           }
           scheduleLibraryRefresh()
