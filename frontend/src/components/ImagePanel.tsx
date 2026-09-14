@@ -14,7 +14,6 @@ const DEFAULT_IMAGE: ImageOptions = {
   quality: 94,
   max_dimension: 1600,
   effort: 4,
-  replace_original: false,
   boxes: [],
   box_color: 'black',
   crop: null,
@@ -38,7 +37,7 @@ const SIZES = [
 
 /** Слева ползунок не уходит в нечитаемое месиво, справа — в бессмысленный вес. */
 const MIN_QUALITY = 20
-const MAX_QUALITY = 95
+const MAX_QUALITY = 100
 
 const SUFFIXES: Record<string, string> = { avif: '_avif', jpg: '_jpeg', webp: '_webp' }
 
@@ -75,12 +74,11 @@ export function ImagePanel({
   // в общем хранилище — иначе всё сбрасывалось бы на каждой картинке.
   const [options, setOptions] = useState<ImageOptions>(() => {
     const prefs = loadPrefs()
-    return {
-      ...DEFAULT_IMAGE,
-      ...prefs.image,
-      replace_original: prefs.imageReplace ?? DEFAULT_IMAGE.replace_original,
-    } as ImageOptions
+    return { ...DEFAULT_IMAGE, ...prefs.image } as ImageOptions
   })
+  // Удаление исходника — не настройка сжатия, а решение про файл, поэтому
+  // живёт отдельно от options и уходит в запрос, а не в параметры кодека.
+  const [deleteOriginal, setDeleteOriginal] = useState(() => loadPrefs().imageReplace ?? false)
   const [intoSubfolder, setIntoSubfolder] = useState(
     () => loadPrefs().subfolder ?? localStorage.getItem('sgh.outputSubfolder') !== 'off',
   )
@@ -110,9 +108,8 @@ export function ImagePanel({
         quality: options.quality,
         max_dimension: options.max_dimension,
       },
-      imageReplace: options.replace_original,
     })
-  }, [options.format, options.quality, options.max_dimension, options.replace_original])
+  }, [options.format, options.quality, options.max_dimension])
 
   useEffect(() => {
     savePrefs({ imagePreview: showPreview })
@@ -187,6 +184,7 @@ export function ImagePanel({
     output_dir: intoSubfolder ? null : parentDir(source),
     suffix: SUFFIXES[options.format] ?? '_сжатый',
     preset_label: activePreset?.label,
+    replace_original: deleteOriginal,
   })
 
   // Отмеченные в медиатеке картинки обрабатываются той же кнопкой.
@@ -236,8 +234,6 @@ export function ImagePanel({
                   setOptions((current) => ({
                     ...current,
                     ...preset.options.image,
-                    // Галочку перезаписи ставит человек — пресет её не трогает.
-                    replace_original: current.replace_original,
                   }))
                 }
                 className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
@@ -346,10 +342,13 @@ export function ImagePanel({
             hint="Программа создаст подпапку «Обработанное», если её ещё нет, и сложит файл туда. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
           />
           <Toggle
-            checked={options.replace_original}
-            onChange={(value) => setOptions({ ...options, replace_original: value })}
+            checked={deleteOriginal}
+            onChange={(value) => {
+              setDeleteOriginal(value)
+              savePrefs({ imageReplace: value })
+            }}
             label="Удалить оригинал"
-            hint="После успешного сжатия исходная картинка будет удалена. По умолчанию выключено."
+            hint="После успешного сжатия исходная картинка уйдёт в корзину Windows — оттуда её можно вернуть. По умолчанию выключено."
           />
         </Section>
 

@@ -17,8 +17,10 @@ export interface Prefs {
   audioPreset?: string
   /** Настройки сжатия картинок: формат, качество, предел размера. */
   image?: { format?: string; quality?: number; max_dimension?: number }
-  /** Удалять оригинал после сжатия картинки. */
+  /** Убирать оригинал в корзину после сжатия картинки. */
   imageReplace?: boolean
+  /** То же для видео и звука. */
+  mediaReplace?: boolean
   /** Показывать живое превью сжатия. */
   imagePreview?: boolean
   /** Складывать результат в подпапку «Обработанное». */

@@ -117,8 +117,6 @@ class ImageOptions(BaseModel):
     max_dimension: int = Field(default=1920, ge=0, le=16384)
     #: Усилие кодера: 0 = медленно и качественно, 8 = быстро.
     effort: int = Field(default=4, ge=0, le=9)
-    #: Удалить исходник после успешного сжатия.
-    replace_original: bool = False
 
 
 class ExportRequest(BaseModel):
@@ -142,6 +140,8 @@ class ExportRequest(BaseModel):
     preset_label: str | None = None
     #: Перезаписывать существующий файл вместо добавления номера.
     overwrite: bool = False
+    #: Убрать исходник в корзину после успешной обработки.
+    replace_original: bool = False
 
 
 class BatchExportRequest(BaseModel):

@@ -148,7 +148,6 @@ export interface ImageOptions {
   quality: number
   max_dimension: number
   effort: number
-  replace_original: boolean
   /** Закрашиваемые области в пикселях оригинала. */
   boxes: Rect[]
   box_color: string

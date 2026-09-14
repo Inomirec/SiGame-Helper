@@ -166,6 +166,7 @@ export function Segmented<T extends string>({
   onChange,
   className = '',
   columns: forced,
+  stacked = false,
 }: {
   value: T
   options: { value: T; label: string; badge?: ReactNode; title?: string }[]
@@ -173,6 +174,9 @@ export function Segmented<T extends string>({
   className?: string
   /** Сколько кнопок в ряду. Больше кнопок — перенесутся на следующий ряд. */
   columns?: number
+  /** Подпись сверху, число снизу. Нужно там, где числа бывают большими:
+      в строку «Кадры 909» не влезает, и название обрезается до «Кад…». */
+  stacked?: boolean
 }) {
   // grid вместо flex: колонки одинаковой ширины делятся поровну и не
   // раздуваются под длинную подпись, поэтому переключатель никогда не вылезает
@@ -191,20 +195,27 @@ export function Segmented<T extends string>({
           type="button"
           title={option.title}
           onClick={() => onChange(option.value)}
-          className={`flex min-w-0 items-center justify-center gap-1 rounded-lg px-1 py-1.5 font-medium transition-colors ${
-            perRow > 4 ? 'text-[11px]' : 'text-[12px]'
+          className={`flex min-w-0 rounded-lg font-medium transition-colors ${
+            stacked
+              ? 'flex-col items-center justify-center gap-0.5 px-1 py-2 text-[12px]'
+              : `items-center justify-center gap-1 px-1 py-1.5 ${
+                  perRow > 4 ? 'text-[11px]' : 'text-[12px]'
+                }`
           } ${
             value === option.value
               ? 'bg-surface-3 text-ink shadow-sm'
               : 'text-ink-faint hover:text-ink-dim'
           }`}
         >
-          <span className="truncate">{option.label}</span>
-          {option.badge !== undefined && (
-            <span className="shrink-0 rounded bg-base/60 px-1 text-[10px] tabular-nums">
-              {option.badge}
-            </span>
-          )}
+          <span className="max-w-full truncate">{option.label}</span>
+          {option.badge !== undefined &&
+            (stacked ? (
+              <span className="text-[12px] tabular-nums opacity-80">{option.badge}</span>
+            ) : (
+              <span className="shrink-0 rounded bg-base/60 px-1 text-[10px] tabular-nums">
+                {option.badge}
+              </span>
+            ))}
         </button>
       ))}
     </div>

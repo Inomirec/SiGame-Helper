@@ -34,11 +34,21 @@ export function JobQueue() {
   const finished = jobs.filter((job) => job.status !== 'queued' && job.status !== 'running')
   const done = jobs.filter((job) => job.status === 'done').length
   const failed = jobs.filter((job) => job.status === 'error').length
-  const overall = active.length
-    ? active.reduce((sum, job) => sum + job.progress, 0) / active.length
-    : 0
+  const working = active.length > 0
 
   const ordered = [...active].reverse().concat([...finished].reverse())
+
+  // Полоса считается по всей пачке, а не по тем задачам, что идут прямо
+  // сейчас. Среднее по активным стояло на месте: при сотне файлов и одной
+  // задаче за раз девяносто девять из них всегда лежат с нулём, а готовые
+  // из счёта уходят — полоса так и не трогалась с места.
+  const waveStart = useRef(finished.length)
+  if (!working) waveStart.current = finished.length
+  const behind = Math.max(0, finished.length - waveStart.current)
+  const total = active.length + behind
+  const overall = total
+    ? (behind + active.reduce((sum, job) => sum + job.progress, 0)) / total
+    : 0
 
   // Счётчик готовых мигает на каждом новом файле. Раньше о том же говорила
   // всплывающая плашка, но она закрывала собой кнопки этой же строки, а при
@@ -50,76 +60,100 @@ export function JobQueue() {
     seenDone.current = done
   }, [done])
 
+  async function clearHistory() {
+    try {
+      await api.clearJobs()
+      await refreshJobs()
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    }
+  }
+
   return (
     <div
       className={`flex shrink-0 flex-col border-t border-line-soft bg-surface transition-[height] duration-200 ${
         open ? 'h-[290px]' : 'h-[42px]'
       }`}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex h-[42px] shrink-0 items-center gap-3 px-4 text-left hover:bg-surface-2"
-      >
-        {active.length ? (
-          <Loader2 size={14} className="animate-spin text-accent-soft" />
-        ) : (
-          <ScrollText size={14} className="text-ink-faint" />
-        )}
-        <span className="text-[12.5px] font-medium">
-          Очередь
-          {active.length > 0 && (
-            <span className="ml-2 rounded bg-accent/20 px-1.5 py-0.5 text-[11px] text-accent-soft">
-              {active.length} в работе
-            </span>
+      <div className="flex h-[42px] shrink-0 items-center gap-3 px-4">
+        {/* Разворот и очистка — разные действия, поэтому строка не может быть
+            одной большой кнопкой: кнопку внутрь кнопки не положить. */}
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="-mx-2 flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-surface-2"
+        >
+          {working ? (
+            <Loader2 size={14} className="shrink-0 animate-spin text-accent-soft" />
+          ) : (
+            <ScrollText size={14} className="shrink-0 text-ink-faint" />
           )}
-        </span>
+          <span className="shrink-0 text-[12.5px] font-medium">
+            Очередь
+            {working && (
+              <span className="ml-2 rounded bg-accent/20 px-1.5 py-0.5 text-[11px] text-accent-soft">
+                {active.length} в работе
+              </span>
+            )}
+          </span>
 
-        {active.length > 0 && (
-          <div className="h-1 w-40 overflow-hidden rounded-full bg-surface-3">
-            <div
-              className="h-full rounded-full bg-accent transition-all duration-300"
-              style={{ width: `${overall * 100}%` }}
-            />
-          </div>
-        )}
+          {working && (
+            <>
+              <div className="h-1 w-40 shrink-0 overflow-hidden rounded-full bg-surface-3">
+                <div
+                  className="h-full rounded-full bg-accent transition-all duration-300"
+                  style={{ width: `${overall * 100}%` }}
+                />
+              </div>
+              <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">
+                {Math.round(overall * 100)}%
+              </span>
+            </>
+          )}
+        </button>
 
         {done > 0 && (
           <span
-            key={blink}
-            className="animate-blink rounded-md bg-ok/12 px-2 py-1 text-[11.5px] font-medium text-ok ring-1 ring-ok/25"
+            key={`${blink}-${working}`}
+            className={`shrink-0 rounded-md px-2 py-1 text-[11.5px] font-medium ring-1 ${
+              working
+                ? 'animate-blink bg-ok/12 text-ok ring-ok/25'
+                : 'bg-surface-2 text-ink-dim ring-line-soft'
+            }`}
           >
             Готово: {done} {plural(done, ['файл', 'файла', 'файлов'])}
           </span>
         )}
 
         {failed > 0 && (
-          <span className="rounded-md bg-danger/12 px-2 py-1 text-[11.5px] font-medium text-danger ring-1 ring-danger/25">
+          <span className="shrink-0 rounded-md bg-danger/12 px-2 py-1 text-[11.5px] font-medium text-danger ring-1 ring-danger/25">
             {failed === 1 ? '1 ошибка' : `Ошибок: ${failed}`}
           </span>
         )}
 
-        <span className="ml-auto flex items-center gap-2 text-[11px] text-ink-faint">
+        {finished.length > 0 && (
+          <button
+            type="button"
+            onClick={clearHistory}
+            title="Очистить историю очереди — списка обработанных файлов, сами файлы останутся на месте"
+            className="shrink-0 rounded-lg p-1.5 text-ink-faint hover:bg-surface-3 hover:text-ink-dim"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          title={open ? 'Свернуть очередь' : 'Развернуть очередь'}
+          className="shrink-0 rounded-lg p-1.5 text-ink-faint hover:bg-surface-3 hover:text-ink-dim"
+        >
           {open ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-        </span>
-      </button>
+        </button>
+      </div>
 
       {open && (
         <>
-          <div className="flex items-center gap-2 border-y border-line-soft px-4 py-1.5">
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[11px] text-ink-faint hover:bg-surface-3 hover:text-ink-dim"
-              onClick={async () => {
-                await api.clearJobs()
-                void refreshJobs()
-              }}
-            >
-              <Trash2 size={12} />
-              Очистить завершённые
-            </button>
-          </div>
-
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             {ordered.length === 0 && (
               <p className="px-3 py-8 text-center text-[12px] text-ink-faint">

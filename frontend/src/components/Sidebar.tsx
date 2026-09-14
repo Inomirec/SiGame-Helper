@@ -174,6 +174,7 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
         <Segmented<FilterKind>
           value={filter}
           onChange={setFilter}
+          stacked
           options={[
             { value: 'all', label: 'Все', badge: counts.all ?? 0 },
             { value: 'video', label: 'Видео', badge: counts.video ?? 0 },

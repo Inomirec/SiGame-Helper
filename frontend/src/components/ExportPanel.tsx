@@ -100,6 +100,7 @@ export function ExportPanel({
   const [intoSubfolder, setIntoSubfolder] = useState(
     () => loadPrefs().subfolder ?? localStorage.getItem('sgh.outputSubfolder') !== 'off',
   )
+  const [deleteOriginal, setDeleteOriginal] = useState(() => loadPrefs().mediaReplace ?? false)
 
   // При первом показе (и при смене типа файла) берём пресет по умолчанию.
   useEffect(() => {
@@ -169,6 +170,7 @@ export function ExportPanel({
       fade_out: withTrim ? fades.audio.out : 0,
     },
     stream_copy: streamCopy,
+    replace_original: deleteOriginal,
     suffix,
     preset_label: activePreset?.label,
   })
@@ -368,6 +370,15 @@ export function ExportPanel({
               }}
               label="Положить результат в подпапку"
               hint="Программа создаст подпапку «Обработанное», если её ещё нет, и сложит файл туда. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
+            />
+            <Toggle
+              checked={deleteOriginal}
+              onChange={(value) => {
+                setDeleteOriginal(value)
+                savePrefs({ mediaReplace: value })
+              }}
+              label="Удалить оригинал"
+              hint="После успешной обработки исходный файл уйдёт в корзину Windows — оттуда его можно вернуть. Если обработка не удалась, исходник остаётся на месте. По умолчанию выключено."
             />
             <Toggle
               checked={command !== null}

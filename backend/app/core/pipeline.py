@@ -87,16 +87,6 @@ def submit_export(request: ExportRequest) -> Job:
                 ctx.progress(value, message)
 
             result = await images.compress(source, output, request.image, report)
-            if request.image.replace_original and output.exists():
-                # В корзину, а не насовсем: галочка запоминается между файлами,
-                # и человек легко забудет, что она включена.
-                try:
-                    trash.to_trash(source)
-                    ctx.log(f"Исходник убран в корзину: {source.name}")
-                except OSError as exc:
-                    # Сжатие уже прошло, результат на месте — ронять из-за
-                    # занятого исходника всю задачу незачем.
-                    ctx.log(f"Исходник не удалось убрать в корзину: {exc}")
             ctx.meta(
                 sizeAfter=result.size,
                 width=result.width,
@@ -145,7 +135,20 @@ def submit_export(request: ExportRequest) -> Job:
             )
             ctx.meta(sizeAfter=output.stat().st_size if output.exists() else 0)
 
+        # Исходник убираем только после того, как результат оказался на диске
+        # и весит больше нуля: иначе неудачная задача унесла бы оригинал.
         size_after = ctx.job.meta.get("sizeAfter") or 0
+        if request.replace_original and size_after and output.exists():
+            # В корзину, а не насовсем: галочка запоминается между файлами,
+            # и человек легко забудет, что она включена.
+            try:
+                trash.to_trash(source)
+                ctx.log(f"Исходник убран в корзину: {source.name}")
+            except OSError as exc:
+                # Обработка уже прошла, результат на месте — ронять из-за
+                # занятого исходника всю задачу незачем.
+                ctx.log(f"Исходник не удалось убрать в корзину: {exc}")
+
         if size_before and size_after:
             ctx.meta(
                 ratio=round(size_after / size_before, 4),
