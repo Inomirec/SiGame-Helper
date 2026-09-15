@@ -196,22 +196,25 @@ export function ImagePanel({
   })
 
   // Отмеченные в медиатеке картинки обрабатываются той же кнопкой.
-  const batch = checked.filter(
+  const others = checked.filter(
     (path) =>
       path !== file.path &&
       (files.find((item) => item.path === path)?.kind ?? '') === 'image',
   )
+  // Снятая галочка означает «эту картинку не трогать» — даже если она открыта.
+  const openChecked = checked.includes(file.path)
+  const batch = openChecked ? [file.path, ...others] : others
+  // Ничего не отмечено — кнопка сжимает открытую картинку.
+  const single = batch.length === 0
 
   async function run() {
     setBusy(true)
     try {
-      if (!batch.length) {
+      if (single) {
         await api.export(buildRequest(file.path, true))
       } else {
-        const items = [
-          buildRequest(file.path, true),
-          ...batch.map((path) => buildRequest(path, false)),
-        ]
+        // Правки кадра нарисованы для открытой картинки, к остальным их не тащим.
+        const items = batch.map((path) => buildRequest(path, path === file.path))
         const result = await api.exportBatch(items)
         if (result.errors.length) toast(result.errors[0].error, 'error')
         toast(
@@ -394,12 +397,17 @@ export function ImagePanel({
       <div className="border-t border-line-soft bg-surface px-4 py-3">
         <Button tone="primary" onClick={() => void run()} disabled={busy} className="w-full py-2.5">
           <Play size={15} />
-          {batch.length
-            ? `Сжать ${batch.length + 1} ${plural(batch.length + 1, ['картинку', 'картинки', 'картинок'])}`
+          {!single
+            ? `Сжать ${batch.length} ${plural(batch.length, ['картинку', 'картинки', 'картинок'])}`
             : hasEdits
               ? 'Применить правки и сжать'
               : 'Сжать изображение'}
         </Button>
+        {others.length > 0 && !openChecked && (
+          <p className="mt-1.5 text-center text-[11px] leading-snug text-ink-faint">
+            Открытая картинка не отмечена — её программа не тронет.
+          </p>
+        )}
         <p className="mt-1.5 text-[11px] leading-snug text-ink-faint">
           Результат ляжет в подпапку <span className="font-mono text-ink-dim">Обработанное</span>{' '}
           рядом с исходником, с припиской{' '}

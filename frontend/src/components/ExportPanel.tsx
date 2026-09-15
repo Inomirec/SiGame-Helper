@@ -176,23 +176,27 @@ export function ExportPanel({
   })
 
   // Отмеченные в медиатеке файлы того же типа обрабатываются одной кнопкой.
-  const batch = checked.filter(
+  const others = checked.filter(
     (path) =>
       path !== file.path &&
       (files.find((item) => item.path === path)?.kind ?? '') === file.kind,
   )
+  // Снятая галочка означает «этот файл не трогать» — даже если он открыт.
+  // Раньше открытый файл попадал в обработку всегда, и при включённом
+  // удалении оригинала терялся файл, который человек намеренно оставил.
+  const openChecked = checked.includes(file.path)
+  const batch = openChecked ? [file.path, ...others] : others
+  // Ничего не отмечено — кнопка обрабатывает открытый файл.
+  const single = batch.length === 0
 
   async function run() {
     setBusy(true)
     try {
-      if (!batch.length) {
+      if (single) {
         await api.export(buildRequest(file.path, true))
       } else {
         // Метки и затухания относятся к открытому файлу, к остальным — нет.
-        const items = [
-          buildRequest(file.path, true),
-          ...batch.map((path) => buildRequest(path, false)),
-        ]
+        const items = batch.map((path) => buildRequest(path, path === file.path))
         const result = await api.exportBatch(items)
         if (result.errors.length) toast(result.errors[0].error, 'error')
         toast(
@@ -437,17 +441,18 @@ export function ExportPanel({
 
         <Button tone="primary" onClick={() => void run()} disabled={busy} className="w-full py-2.5">
           <Play size={15} />
-          {batch.length
-            ? `Обработать ${batch.length + 1} ${plural(batch.length + 1, ['файл', 'файла', 'файлов'])}`
+          {!single
+            ? `Обработать ${batch.length} ${plural(batch.length, ['файл', 'файла', 'файлов'])}`
             : streamCopy
               ? 'Обрезать без сжатия'
               : 'Обрезать и сжать'}
         </Button>
 
-        {batch.length > 0 && (
+        {others.length > 0 && (
           <p className="text-center text-[11px] leading-snug text-ink-faint">
             К отмеченным файлам применится тот же пресет, но без обрезки — метки стоят
             только на открытом файле.
+            {!openChecked && ' Открытый файл не отмечен, его программа не тронет.'}
           </p>
         )}
       </div>
