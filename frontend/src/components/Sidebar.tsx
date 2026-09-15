@@ -117,6 +117,10 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
 
   const allChecked = files.length > 0 && checked.length === files.length
   const totalSize = files.reduce((sum, file) => sum + file.size, 0)
+  // Отмечать всё подряд можно только внутри одного типа: пресет всегда
+  // относится к чему-то одному, и на «Всех» человек отметил бы заодно
+  // картинки, собираясь сжимать видео.
+  const canSelectAll = filter !== 'all' && files.length > 0
 
   async function remove(path: string) {
     // Окно подтверждения закрываем сразу: удаление занятого файла занимает
@@ -208,19 +212,31 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
       <div className="flex items-center gap-1 border-b border-line-soft px-3 py-1.5 text-[11px] text-ink-faint">
         <button
           type="button"
+          // Снять отметки можно всегда — иначе, переключившись на «Все»,
+          // человек остался бы с отмеченными файлами и без способа их снять.
+          disabled={!canSelectAll && checked.length === 0}
+          title={
+            canSelectAll || checked.length
+              ? undefined
+              : 'Сначала выберите, что отмечать: «Видео», «Аудио» или «Кадры». Пресет всё равно применяется к чему-то одному.'
+          }
           onClick={() => {
-            if (allChecked) {
+            if (allChecked || !canSelectAll) {
               setChecked([])
               return
             }
-            setChecked(files.map((file) => file.path))
-            // Пока ни один файл не открыт, правая панель пуста и пресет выбрать
-            // негде. Открываем первый из списка — но только если человек ещё
-            // ничего не открыл: иначе он потеряет метки и правки того файла,
-            // ради которого сюда и зашёл.
-            if (!activePath && sorted.length) void select(sorted[0].path)
+            const paths = sorted.map((file) => file.path)
+            setChecked(paths)
+            // Правая панель показывает настройки открытого файла. Если он не
+            // из числа отмеченных, человек выбирал бы пресет для одного, а
+            // обрабатывал другое — открываем первый отмеченный. Когда
+            // открытый файл среди отмеченных, оставляем его: иначе потеряются
+            // метки и правки того файла, ради которого сюда и зашли.
+            if (paths.length && (!activePath || !paths.includes(activePath))) {
+              void select(paths[0])
+            }
           }}
-          className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-surface-3 hover:text-ink-dim"
+          className="flex items-center gap-1.5 rounded px-1.5 py-1 enabled:hover:bg-surface-3 enabled:hover:text-ink-dim disabled:cursor-not-allowed disabled:opacity-45"
         >
           {allChecked ? <CheckSquare size={13} /> : <Square size={13} />}
           {checked.length ? `Выбрано: ${checked.length}` : 'Выбрать все'}

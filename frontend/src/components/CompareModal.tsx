@@ -68,6 +68,10 @@ export function CompareModal({
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [failed, setFailed] = useState(false)
+  // Исходник могли удалить сразу после обработки — тогда показывать нечего.
+  // Раньше на его месте оставался значок битой картинки, который ничего
+  // не объяснял.
+  const [beforeGone, setBeforeGone] = useState(false)
   // Громкость запоминаем ту же, что и в основном плеере.
   const [volume, setVolume] = useState(() => Number(localStorage.getItem('sgh.volume') ?? '1'))
 
@@ -288,13 +292,24 @@ export function CompareModal({
                 className="absolute inset-0 overflow-hidden"
                 style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
               >
-                <img
-                  src={mediaUrl(before)}
-                  alt="до"
-                  className="block max-h-[58vh] w-full object-contain"
-                style={frameStyle}
-                  draggable={false}
-                />
+                {beforeGone ? (
+                  // Текст прижат к левому краю: по центру шторка разрезала бы
+                  // его пополам на любом положении около середины.
+                  <div className="flex h-full w-full items-center bg-base px-5">
+                    <p className="max-w-[12rem] text-[12px] leading-snug text-ink-faint">
+                      Оригинал удалён — сравнивать не с чем.
+                    </p>
+                  </div>
+                ) : (
+                  <img
+                    src={mediaUrl(before)}
+                    alt=""
+                    className="block max-h-[58vh] w-full object-contain"
+                    style={frameStyle}
+                    draggable={false}
+                    onError={() => setBeforeGone(true)}
+                  />
+                )}
               </div>
             </>
           ) : (
@@ -366,9 +381,11 @@ export function CompareModal({
             </p>
           )}
 
-          <span className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white">
-            до {sizeBefore ? `· ${humanSize(sizeBefore)}` : ''}
-          </span>
+          {!beforeGone && (
+            <span className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white">
+              до {sizeBefore ? `· ${humanSize(sizeBefore)}` : ''}
+            </span>
+          )}
           <span className="pointer-events-none absolute right-3 top-3 rounded-md bg-black/70 px-2 py-1 text-[11px] font-medium text-white">
             после {sizeAfter ? `· ${humanSize(sizeAfter)}` : ''}
           </span>
