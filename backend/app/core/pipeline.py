@@ -16,7 +16,7 @@ from ..models import (
     FrameGrabRequest,
     RawCommandRequest,
 )
-from . import binaries, download, encode, fsutil, images, presets, toolchain, trash
+from . import benchmark, binaries, download, encode, fsutil, images, presets, toolchain, trash
 from .events import bus
 from .jobs import Job, JobContext, manager, run_ffmpeg
 from .probe import probe
@@ -446,6 +446,25 @@ def _chain_processing(files: list[Path], preset_id: str) -> None:
 
 
 # --- установка инструментов ------------------------------------------------
+
+def submit_benchmark() -> Job:
+    """Замер числа одновременных задач — обычной задачей в очереди.
+
+    Пул для него отдельный: в очереди кодирования замер стоял бы за чужими
+    файлами, а рядом с ними мерить нечего — цифры вышли бы про соседей.
+    """
+
+    async def runner(ctx: JobContext) -> None:
+        await benchmark.run(ctx)
+
+    return manager.submit(
+        kind="download",
+        title="Подбор числа задач",
+        runner=runner,
+        pool="download",
+        meta={"benchmark": True},
+    )
+
 
 def submit_ffmpeg_install() -> Job:
     """Скачивание и распаковку ffmpeg показываем обычной задачей в очереди."""

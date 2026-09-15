@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from .. import __version__
-from ..core import appwindow, binaries, filmstrip, pipeline, presets, thumbs, updates, waveform
+from ..core import appwindow, binaries, filmstrip, jobs, pipeline, presets, thumbs, updates, waveform
 from ..core.events import bus
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -65,6 +65,26 @@ async def show_window() -> dict:
     последней, затёрла бы чужие изменения.
     """
     return {"shown": appwindow.show()}
+
+
+@router.post("/benchmark")
+async def benchmark() -> dict:
+    """Подбирает число одновременных задач под этот компьютер.
+
+    Пока идёт чужая обработка, мерить бессмысленно: время покажет не
+    возможности машины, а то, чем она сейчас занята.
+    """
+    busy = [
+        job for job in jobs.manager.list()
+        if job["status"] in ("queued", "running")
+    ]
+    if busy:
+        raise HTTPException(
+            409,
+            "Сейчас идёт обработка — замер показал бы не возможности "
+            "компьютера, а то, чем он занят. Дождитесь конца очереди.",
+        )
+    return pipeline.submit_benchmark().to_dict()
 
 
 @router.post("/tools/{tool}/update")

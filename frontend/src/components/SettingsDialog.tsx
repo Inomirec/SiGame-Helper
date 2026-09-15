@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react'
+import { CheckCircle2, Gauge, RefreshCw, XCircle } from 'lucide-react'
 import { api } from '../lib/api'
+import { plural } from '../lib/format'
 import type { ToolInfo } from '../lib/types'
 import { useStore } from '../store'
 import { Button, Modal, NumberField, Section, Segmented, Select, Spinner, Toggle } from './ui'
@@ -10,6 +11,51 @@ const UPDATABLE = new Set(['yt-dlp', 'gallery-dl'])
 
 type UpdateInfo = { current: string | null; latest: string | null; state: string }
 
+/** Столбик замеров: сколько заняла пробная пачка при каждом значении. */
+function MeasuredTable({
+  title,
+  rows,
+  best,
+  count,
+  forms,
+}: {
+  title: string
+  rows: { level: number; seconds: number }[]
+  best: number
+  count: number
+  forms: [string, string, string]
+}) {
+  if (!rows.length) return null
+  const slowest = Math.max(...rows.map((row) => row.seconds))
+  return (
+    <div>
+      <span className="label">{title}</span>
+      <div className="space-y-1">
+        {rows.map((row) => (
+          <div key={row.level} className="flex items-center gap-2 text-[11px]">
+            <span className={`w-14 shrink-0 tabular-nums ${row.level === best ? 'text-ok' : 'text-ink-faint'}`}>
+              по {row.level}
+            </span>
+            <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-3">
+              <span
+                className={`block h-full rounded-full ${row.level === best ? 'bg-ok' : 'bg-ink-faint/40'}`}
+                style={{ width: `${(row.seconds / slowest) * 100}%` }}
+              />
+            </span>
+            <span className="w-12 shrink-0 text-right tabular-nums text-ink-faint">
+              {row.seconds.toFixed(1)} с
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1 text-[11px] text-ink-faint">
+        Одна и та же пачка из {count} {plural(count, forms)} при разном числе задач. Чем
+        короче полоска, тем быстрее.
+      </p>
+    </div>
+  )
+}
+
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const settings = useStore((state) => state.settings)
   const status = useStore((state) => state.status)
@@ -18,6 +64,10 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const refreshStatus = useStore((state) => state.refreshStatus)
   const refreshLibrary = useStore((state) => state.refreshLibrary)
 
+  const jobs = useStore((state) => state.jobs)
+  const setQueueOpen = useStore((state) => state.setQueueOpen)
+
+  const [benchId, setBenchId] = useState<string | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
   const [versions, setVersions] = useState<Record<string, UpdateInfo>>({})
   const [checking, setChecking] = useState(false)
@@ -33,7 +83,35 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
       .finally(() => setChecking(false))
   }, [open])
 
+  // Замер идёт обычной задачей очереди, поэтому его состояние приходит
+  // оттуда же, что и у остальных, — отдельного опроса не нужно.
+  const bench = benchId ? jobs.find((job) => job.id === benchId) : undefined
+  const benchRunning = bench?.status === 'queued' || bench?.status === 'running'
+  const measured = bench?.status === 'done' ? bench.meta : null
+
   if (!settings) return null
+
+  async function measure() {
+    try {
+      const job = await api.benchmark()
+      setBenchId(job.id)
+      setQueueOpen(true)
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    }
+  }
+
+  async function applyMeasured() {
+    if (!measured) return
+    await patch({
+      export: {
+        concurrency: measured.videoBest,
+        image_concurrency: measured.imageBest,
+      },
+    })
+    setBenchId(null)
+    toast('Настройки применены — они вступят в силу после перезапуска', 'ok')
+  }
 
   async function patch(value: Record<string, unknown>) {
     try {
@@ -133,6 +211,69 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                 onChange={(value) => void patch({ export: { image_concurrency: value } })}
                 hint="Картинка маленькая, и на хорошем процессоре их идёт много. Подберите под свой компьютер. Вступит в силу после перезапуска."
               />
+
+              <div className="space-y-2 rounded-xl bg-surface-2 px-3 py-2.5">
+                <Button
+                  onClick={() => void measure()}
+                  disabled={benchRunning}
+                  className="w-full"
+                >
+                  {benchRunning ? <Spinner size={13} /> : <Gauge size={13} />}
+                  {benchRunning ? 'Идёт замер…' : 'Подобрать под мой компьютер'}
+                </Button>
+
+                {benchRunning && (
+                  <p className="text-[11px] leading-snug text-ink-faint">
+                    {bench?.message || 'Запускаю'} · {Math.round((bench?.progress ?? 0) * 100)}%
+                    <br />
+                    Займёт около минуты. Программа прогонит пробную пачку при разном числе
+                    задач и выберет, где прирост заканчивается.
+                  </p>
+                )}
+
+                {bench?.status === 'error' && (
+                  <p className="text-[11px] leading-snug text-danger">
+                    Замер не удался: {bench.error}
+                  </p>
+                )}
+
+                {measured && (
+                  <div className="space-y-2">
+                    <MeasuredTable
+                      title="Видео"
+                      rows={measured.video ?? []}
+                      best={measured.videoBest}
+                      count={measured.clips ?? 4}
+                      forms={['ролик', 'ролика', 'роликов']}
+                    />
+                    <MeasuredTable
+                      title="Картинки"
+                      rows={measured.image ?? []}
+                      best={measured.imageBest}
+                      count={measured.images ?? 12}
+                      forms={['картинка', 'картинки', 'картинок']}
+                    />
+                    <p className="text-[11px] leading-snug text-ink-faint">
+                      Выбрано не самое быстрое число, а самое маленькое из тех, что почти не
+                      уступают: разница в пару процентов не стоит того, чтобы занимать
+                      компьютер сильнее.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button tone="primary" onClick={() => void applyMeasured()} className="flex-1">
+                        Поставить {measured.videoBest} и {measured.imageBest}
+                      </Button>
+                      <Button onClick={() => setBenchId(null)}>Не менять</Button>
+                    </div>
+                  </div>
+                )}
+
+                {!benchRunning && !measured && bench?.status !== 'error' && (
+                  <p className="text-[11px] leading-snug text-ink-faint">
+                    Программа сама прогонит пробную пачку и подберёт числа под ваш
+                    процессор. Занимает около минуты; очередь при этом должна быть пуста.
+                  </p>
+                )}
+              </div>
               <div>
                 <span className="label">Папка для результатов</span>
                 <input

@@ -105,6 +105,9 @@ export const api = {
   renameFile: (path: string, newName: string) =>
     post<{ ok: boolean; path: string }>('/api/library/rename', { path, new_name: newName }),
 
+  /** Запускает подбор числа одновременных задач. Возвращает задачу очереди. */
+  benchmark: () => post<Job>('/api/benchmark'),
+
   jobs: () => request<{ jobs: Job[]; active: number }>('/api/jobs'),
   job: (id: string) => request<Job>(`/api/jobs/${id}`),
   cancelJob: (id: string) => post<{ ok: boolean }>(`/api/jobs/${id}/cancel`),
