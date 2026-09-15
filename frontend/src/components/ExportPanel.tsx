@@ -46,11 +46,14 @@ export function ExportPanel({
   file,
   trim,
   fades,
+  trackVolume,
   onDone,
 }: {
   file: FileInfo
   trim: TrimState
   fades: Fades
+  /** Громкость дорожки с таймлайна: 1 — как есть, 0 — без звука. */
+  trackVolume: number
   onDone?: () => void
 }) {
   const presets = useStore((state) => state.presets)
@@ -168,6 +171,8 @@ export function ExportPanel({
       ...audio,
       fade_in: withTrim ? fades.audio.in : 0,
       fade_out: withTrim ? fades.audio.out : 0,
+      // Громкость выставлена для открытого файла — к пачке её не тащим.
+      volume: withTrim ? trackVolume : 1,
     },
     stream_copy: streamCopy,
     replace_original: deleteOriginal,

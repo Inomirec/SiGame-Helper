@@ -56,6 +56,10 @@ class AudioOptions(BaseModel):
     fade_out: float = Field(default=0.0, ge=0, le=30)
     #: Привести к моно (заметно экономит вес для речи).
     mono: bool = False
+    #: Громкость дорожки: 1.0 — как есть, 0 — совсем без звука. Ноль означает
+    #: именно «выбросить дорожку», а не записать тишину: пустая дорожка всё
+    #: равно занимает место и сбивает с толку в редакторе пака.
+    volume: float = Field(default=1.0, ge=0.0, le=2.0)
 
 
 class VideoOptions(BaseModel):

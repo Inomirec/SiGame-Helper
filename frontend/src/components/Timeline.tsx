@@ -9,6 +9,9 @@ type Drag =
   | { kind: 'out' }
   | { kind: 'fade'; lane: Lane; side: 'in' | 'out' }
   | { kind: 'pan'; grabX: number; startAt: number }
+  // Линию громкости тянут вверх-вниз, поэтому запоминаем границы дорожки:
+  // по ним считается доля, а искать элемент на каждом движении не нужно.
+  | { kind: 'volume'; top: number; height: number }
   | null
 
 export type Lane = 'video' | 'audio'
@@ -59,6 +62,8 @@ export function Timeline({
   hasVideo = true,
   hasAudio = true,
   fades,
+  volume,
+  onVolumeChange,
   onFadesChange,
   playing = false,
 }: {
@@ -77,6 +82,9 @@ export function Timeline({
   hasAudio?: boolean
   fades?: Fades
   onFadesChange?: (fades: Fades) => void
+  /** Громкость дорожки: 1 — как есть, 0 — совсем без звука. */
+  volume?: number
+  onVolumeChange?: (volume: number) => void
   playing?: boolean
 }) {
   const trackRef = useRef<HTMLDivElement>(null)
@@ -192,6 +200,16 @@ export function Timeline({
         const rect = track.getBoundingClientRect()
         const moved = ((event.clientX - mode.grabX) / rect.width) * safeDuration
         setViewStart(clamp(mode.startAt + moved, 0, Math.max(safeDuration - span, 0)))
+        return
+      }
+
+      if (mode.kind === 'volume') {
+        if (!onVolumeChange || mode.height <= 0) return
+        const level = 1 - (event.clientY - mode.top) / mode.height
+        // У краёв защёлкиваем: попасть мышью ровно в ноль или единицу трудно,
+        // а нужны чаще всего именно они — «без звука» и «как есть».
+        const snapped = level < 0.06 ? 0 : level > 0.94 ? 1 : level
+        onVolumeChange(clamp(snapped, 0, 1))
         return
       }
 
@@ -386,6 +404,12 @@ export function Timeline({
             trimSpan={trimSpan}
             editable={Boolean(onFadesChange)}
             onFadeDown={(event, side) => startDrag(event, { kind: 'fade', lane: 'audio', side })}
+            volume={onVolumeChange ? (volume ?? 1) : undefined}
+            onVolumeDown={(event) => {
+              const lane = (event.currentTarget as HTMLElement).closest('[data-lane]')
+              const rect = lane?.getBoundingClientRect()
+              if (rect) startDrag(event, { kind: 'volume', top: rect.top, height: rect.height })
+            }}
           >
             <Waveform
               peaks={peaks}
@@ -507,6 +531,8 @@ function TrackLane({
   trimSpan,
   editable,
   onFadeDown,
+  volume,
+  onVolumeDown,
   children,
 }: {
   height: number
@@ -516,6 +542,9 @@ function TrackLane({
   trimSpan: number
   editable: boolean
   onFadeDown: (event: React.PointerEvent, side: 'in' | 'out') => void
+  /** Громкость дорожки. undefined — линии громкости у этой дорожки нет. */
+  volume?: number
+  onVolumeDown?: (event: React.PointerEvent) => void
   children: React.ReactNode
 }) {
   const width = Math.max(selection.to - selection.from, 0.0001)
@@ -523,9 +552,56 @@ function TrackLane({
   const fadeInWidth = (fade.in / trimSpan) * width
   const fadeOutWidth = (fade.out / trimSpan) * width
 
+  const muted = volume !== undefined && volume <= 0
+
   return (
-    <div className="relative border-b border-line-soft/60 last:border-b-0" style={{ height }}>
+    <div
+      data-lane
+      className="relative border-b border-line-soft/60 last:border-b-0"
+      style={{ height }}
+    >
       {children}
+
+      {/* Линия громкости — как в монтажных программах: тянешь вниз, звук тише,
+          у самого низа дорожка глушится совсем. */}
+      {volume !== undefined && (
+        <>
+          <div
+            className={`pointer-events-none absolute inset-x-0 z-[6] border-t ${
+              muted ? 'border-danger/70' : 'border-ok/70'
+            }`}
+            style={{ top: `${(1 - volume) * 100}%` }}
+          />
+          {volume < 1 && (
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 z-[5] bg-base/70"
+              style={{ height: `${(1 - volume) * 100}%` }}
+            />
+          )}
+          <div
+            role="slider"
+            aria-label="Громкость дорожки"
+            aria-valuenow={Math.round(volume * 100)}
+            title={
+              muted
+                ? 'Без звука. Тяните вверх, чтобы вернуть.'
+                : `Громкость ${Math.round(volume * 100)}%. Тяните вниз — до самого низа звук выключится.`
+            }
+            onPointerDown={onVolumeDown}
+            className="absolute inset-x-0 z-[7] h-3 -translate-y-1/2 cursor-ns-resize"
+            style={{ top: `${(1 - volume) * 100}%` }}
+          />
+          {volume < 1 && (
+            <span
+              className={`pointer-events-none absolute right-1.5 top-1 z-[8] rounded px-1 text-[9px] font-medium ${
+                muted ? 'bg-danger/80 text-white' : 'bg-black/55 text-white/80'
+              }`}
+            >
+              {muted ? 'без звука' : `${Math.round(volume * 100)}%`}
+            </span>
+          )}
+        </>
+      )}
 
       <span className="pointer-events-none absolute left-1.5 top-1 z-[5] rounded bg-black/45 px-1 text-[9px] font-medium uppercase tracking-wide text-white/60">
         {label}

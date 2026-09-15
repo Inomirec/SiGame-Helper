@@ -44,6 +44,8 @@ export default function App() {
   // Превью считает панель справа, а показывает холст слева — состояние общее.
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null)
   const [fades, setFades] = useState<Fades>(emptyFades)
+  // Громкость дорожки: 1 — как есть, 0 — совсем без звука.
+  const [trackVolume, setTrackVolume] = useState(1)
 
   useEffect(() => {
     void bootstrap()
@@ -86,6 +88,7 @@ export default function App() {
     setTrim({ in: null, out: null })
     setImageEdit(emptyImageEdit)
     setFades(emptyFades)
+    setTrackVolume(1)
   }, [activePath])
 
   // Выбор файла в медиатеке всегда возвращает на вкладку редактора.
@@ -187,6 +190,8 @@ export default function App() {
                   trim={trim}
                   onTrimChange={setTrim}
                   fades={fades}
+                  trackVolume={trackVolume}
+                  onTrackVolumeChange={setTrackVolume}
                   onFadesChange={setFades}
                 />
               )}
@@ -211,7 +216,13 @@ export default function App() {
                 onPreview={setImagePreview}
               />
             ) : (
-              <ExportPanel key={activeInfo.path} file={activeInfo} trim={trim} fades={fades} />
+              <ExportPanel
+                key={activeInfo.path}
+                file={activeInfo}
+                trim={trim}
+                fades={fades}
+                trackVolume={trackVolume}
+              />
             )}
           </aside>
         )}

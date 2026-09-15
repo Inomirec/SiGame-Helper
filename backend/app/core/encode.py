@@ -88,6 +88,11 @@ def build_audio_filters(
         if abs(remaining - 1.0) > 1e-6:
             filters.append(f"atempo={remaining:.6g}")
 
+    # Громкость двигаем до выравнивания: иначе loudnorm вернул бы её обратно,
+    # и ползунок не делал бы ничего.
+    if abs(options.volume - 1.0) > 1e-6:
+        filters.append(f"volume={options.volume:.3g}")
+
     if options.loudnorm:
         params = [
             f"I={options.loudnorm_i:g}",
@@ -416,8 +421,15 @@ def build_command(
     ]
     args += input_args(request.trim, request.source, accurate=not stream_copy)
 
+    # Нулевая громкость — это «без звука»: дорожку не берём вовсе. Записывать
+    # тишину незачем, она занимает место и выглядит в редакторе пака как
+    # рабочий звук, который почему-то не слышно.
+    muted = not audio_only and request.audio.volume <= 0
+
     if audio_only:
         args += ["-vn", "-map", "0:a:0?"]
+    elif muted:
+        args += ["-map", "0:v:0", "-an"]
     else:
         # Берём первую видео- и первую аудиодорожку; субтитры и данные отбрасываем.
         args += ["-map", "0:v:0", "-map", "0:a:0?"]
@@ -440,7 +452,7 @@ def build_command(
             if video_filters:
                 args += ["-vf", ",".join(video_filters)]
 
-        has_audio = info.has_audio if info else True
+        has_audio = (info.has_audio if info else True) and not muted
         if has_audio:
             args += audio_codec_args(request.audio)
             if request.audio.codec not in {"copy", "none"}:

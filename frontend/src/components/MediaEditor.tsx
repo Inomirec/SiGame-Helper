@@ -60,12 +60,17 @@ export function MediaEditor({
   onTrimChange,
   fades,
   onFadesChange,
+  trackVolume,
+  onTrackVolumeChange,
 }: {
   file: FileInfo
   trim: TrimState
   onTrimChange: (trim: TrimState) => void
   fades: Fades
   onFadesChange: (fades: Fades) => void
+  /** Громкость дорожки в результате — не громкость предпросмотра. */
+  trackVolume: number
+  onTrackVolumeChange: (volume: number) => void
 }) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null)
   const shellRef = useRef<HTMLDivElement>(null)
@@ -427,6 +432,8 @@ export function MediaEditor({
           hasVideo={isVideo}
           hasAudio={file.media?.hasAudio ?? !isVideo}
           fades={fades}
+          volume={trackVolume}
+          onVolumeChange={onTrackVolumeChange}
           onFadesChange={onFadesChange}
           playing={playing}
         />
