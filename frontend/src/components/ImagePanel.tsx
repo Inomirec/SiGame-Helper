@@ -83,6 +83,14 @@ export function ImagePanel({
     () => loadPrefs().subfolder ?? localStorage.getItem('sgh.outputSubfolder') !== 'off',
   )
   const [busy, setBusy] = useState(false)
+  // Движущуюся картинку умеет сохранить только WebP: в AVIF и JPEG влезает
+  // один кадр, и от анимации остался бы стоп-кадр.
+  const animated = Boolean(file.media?.animated)
+  useEffect(() => {
+    if (animated && options.format !== 'webp') {
+      setOptions((current) => ({ ...current, format: 'webp' }))
+    }
+  }, [animated, options.format])
   const [showPreview, setShowPreview] = useState(() => loadPrefs().imagePreview ?? true)
   const [preview, setPreview] = useState<ImagePreview | null>(null)
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -260,8 +268,14 @@ export function ImagePanel({
           <Segmented<Format>
             value={options.format as Format}
             onChange={(value) => setOptions({ ...options, format: value })}
-            options={FORMATS}
+            options={animated ? FORMATS.map((item) => ({ ...item, disabled: item.value !== 'webp' })) : FORMATS}
           />
+          {animated && (
+            <p className="rounded-lg bg-surface-2 px-3 py-2 text-[11px] leading-snug text-ink-dim">
+              Это движущаяся картинка. Сохранить движение умеет только WebP — в
+              остальных форматах остался бы один кадр.
+            </p>
+          )}
 
           <div>
             <div className="flex items-center justify-between">

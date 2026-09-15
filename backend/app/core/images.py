@@ -91,6 +91,10 @@ def build_args(
     """Команда ffmpeg для одной попытки кодирования."""
     fmt = options.format
     native = _quality_to_native(fmt, quality)
+    # У движущейся картинки нельзя брать только первый кадр: получился бы
+    # стоп-кадр вместо анимации, причём молча — задача считалась бы успешной.
+    animated = bool(info and info.animated) and fmt == "webp"
+    still = [] if animated else ["-frames:v", "1"]
 
     args = [binaries.ffmpeg(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
     args += ["-i", str(source)]
@@ -171,7 +175,7 @@ def build_args(
             # Формат пикселей задаём только картинке: у канала прозрачности
             # он уже выставлен фильтром, и общий -pix_fmt его бы испортил.
             *(["-pix_fmt:v:0", "yuv420p"] if keep_alpha else ["-pix_fmt", "yuv420p"]),
-            "-frames:v", "1",
+            *still,
             "-f", "avif",
         ]
     elif fmt == "webp":
@@ -185,7 +189,8 @@ def build_args(
             "-qscale:v", str(native),
             "-compression_level", str(max(0, min(6, 6 - options.effort // 2))),
             "-pix_fmt", "yuva420p" if keep_alpha else "yuv420p",
-            "-frames:v", "1",
+            *(["-loop", "0"] if animated else []),
+            *still,
             "-f", "webp",
         ]
     elif fmt == "jpg":
@@ -195,7 +200,7 @@ def build_args(
             "-c:v", "mjpeg",
             "-q:v", str(native),
             "-pix_fmt", "yuvj420p",
-            "-frames:v", "1",
+            *still,
             "-f", "image2",
         ]
     elif fmt == "png":
@@ -315,6 +320,16 @@ async def compress(
         source = await _apply_paint(source, options.paint_png, paint_dir)
 
     info = await probe(source)
+    if info and info.animated and options.format != "webp":
+        # Молча отдать первый кадр нельзя: задача считалась бы успешной, а от
+        # анимации остался бы стоп-кадр — и человек узнал бы об этом, только
+        # открыв результат, возможно уже удалив оригинал.
+        frames = info.video.frames if info.video else 0
+        raise ValueError(
+            f"Это движущаяся картинка ({frames} кадров). "
+            f"{options.format.upper()} хранит только один кадр — "
+            "выберите формат WebP, он умеет анимацию."
+        )
     alpha_used = await alpha_is_used(source) if info and info.has_alpha else False
 
     async def report(value: float, message: str) -> None:

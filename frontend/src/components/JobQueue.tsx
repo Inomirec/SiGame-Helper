@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -18,7 +18,10 @@ import { fileName, humanSize, plural, savings, shrinkRatio } from '../lib/format
 import type { Job } from '../lib/types'
 import { useStore } from '../store'
 import { CompareModal } from './CompareModal'
-import { IconButton } from './ui'
+import { Button, IconButton, Modal } from './ui'
+
+//: Сколько строк очереди показываем разом.
+const ROW_LIMIT = 200
 
 export function JobQueue() {
   const jobs = useStore((state) => state.jobs)
@@ -27,8 +30,10 @@ export function JobQueue() {
   const toast = useStore((state) => state.toast)
   const refreshJobs = useStore((state) => state.refreshJobs)
 
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const expanded = useStore((state) => state.logJobId)
+  const setExpanded = useStore((state) => state.setLogJob)
   const [compare, setCompare] = useState<Job | null>(null)
+  const [errorsOpen, setErrorsOpen] = useState(false)
 
   const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running')
   const finished = jobs.filter((job) => job.status !== 'queued' && job.status !== 'running')
@@ -37,6 +42,10 @@ export function JobQueue() {
   const working = active.length > 0
 
   const ordered = [...active].reverse().concat([...finished].reverse())
+  // Больше двух сотен строк разом не рисуем: при очереди в полтысячи файлов
+  // каждая новость от задачи заставляла перерисовывать весь список, и окно
+  // переставало отзываться до конца обработки.
+  const shown = ordered.slice(0, ROW_LIMIT)
 
   // Полоса считается по всей пачке, а не по тем задачам, что идут прямо
   // сейчас. Среднее по активным стояло на месте: при сотне файлов и одной
@@ -126,9 +135,14 @@ export function JobQueue() {
         )}
 
         {failed > 0 && (
-          <span className="shrink-0 rounded-md bg-danger/12 px-2 py-1 text-[11.5px] font-medium text-danger ring-1 ring-danger/25">
+          <button
+            type="button"
+            onClick={() => setErrorsOpen(true)}
+            title="Показать, какие файлы не прошли и почему"
+            className="shrink-0 rounded-md bg-danger/12 px-2 py-1 text-[11.5px] font-medium text-danger ring-1 ring-danger/25 hover:bg-danger/20"
+          >
             {failed === 1 ? '1 ошибка' : `Ошибок: ${failed}`}
-          </span>
+          </button>
         )}
 
         {finished.length > 0 && (
@@ -161,26 +175,25 @@ export function JobQueue() {
               </p>
             )}
             <ul className="space-y-1">
-              {ordered.map((job) => (
-                <JobRow
-                  key={job.id}
-                  job={job}
-                  expanded={expanded === job.id}
-                  onToggle={() => setExpanded(expanded === job.id ? null : job.id)}
-                  onCancel={async () => {
-                    try {
-                      await api.cancelJob(job.id)
-                    } catch (error) {
-                      toast((error as Error).message, 'error')
-                    }
-                  }}
-                  onCompare={() => setCompare(job)}
-                />
+              {shown.map((job) => (
+                <JobRow key={job.id} job={job} expanded={expanded === job.id} onCompare={setCompare} />
               ))}
             </ul>
+            {ordered.length > shown.length && (
+              <p className="px-3 py-3 text-center text-[11px] text-ink-faint">
+                Показаны первые {shown.length} из {ordered.length}. Остальные видны по мере
+                того, как список разбирается, — или очистите историю.
+              </p>
+            )}
           </div>
         </>
       )}
+
+      <ErrorsModal
+        open={errorsOpen}
+        onClose={() => setErrorsOpen(false)}
+        jobs={jobs.filter((job) => job.status === 'error')}
+      />
 
       {compare && compare.source && compare.output && (
         <CompareModal
@@ -199,20 +212,35 @@ export function JobQueue() {
   )
 }
 
-function JobRow({
+/**
+ * Строка очереди.
+ *
+ * Обёрнута в memo, а обработчики берёт из хранилища сама: если передавать их
+ * сверху, на каждый рендер создавались бы новые функции, и memo не спасал бы
+ * от перерисовки всего списка на каждую новость от задачи.
+ */
+const JobRow = memo(function JobRow({
   job,
   expanded,
-  onToggle,
-  onCancel,
   onCompare,
 }: {
   job: Job
   expanded: boolean
-  onToggle: () => void
-  onCancel: () => void
-  onCompare: () => void
+  onCompare: (job: Job) => void
 }) {
   const toast = useStore((state) => state.toast)
+  const setExpanded = useStore((state) => state.setLogJob)
+  const onToggle = useCallback(
+    () => setExpanded(expanded ? null : job.id),
+    [expanded, job.id, setExpanded],
+  )
+  const onCancel = useCallback(async () => {
+    try {
+      await api.cancelJob(job.id)
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    }
+  }, [job.id, toast])
   const running = job.status === 'running' || job.status === 'queued'
   const compression = savings(job.meta?.sizeBefore, job.meta?.sizeAfter)
   // Сравнивать есть смысл только там, где остались оба файла: у скачивания
@@ -278,7 +306,11 @@ function JobRow({
 
         <div className="flex shrink-0 items-center">
           {canCompare && (
-            <IconButton className="h-7 w-7" title="Сравнить до и после" onClick={onCompare}>
+            <IconButton
+              className="h-7 w-7"
+              title="Сравнить до и после"
+              onClick={() => onCompare(job)}
+            >
               <Columns2 size={13} />
             </IconButton>
           )}
@@ -310,6 +342,92 @@ function JobRow({
 
       {expanded && <JobLog job={job} />}
     </li>
+  )
+})
+
+/**
+ * Разбор ошибок пачки.
+ *
+ * При очереди в несколько сотен файлов «5 ошибок» в строке очереди ничего не
+ * говорят: искать их глазами по всему списку — занятие на полчаса. Здесь
+ * сразу видно, что не прошло, где лежит и что сказала программа.
+ */
+function ErrorsModal({
+  open,
+  onClose,
+  jobs,
+}: {
+  open: boolean
+  onClose: () => void
+  jobs: Job[]
+}) {
+  const toast = useStore((state) => state.toast)
+
+  const asText = jobs
+    .map((job) => `${job.source ?? job.title}\n    ${job.error ?? 'причина неизвестна'}`)
+    .join('\n\n')
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Не удалось обработать: ${jobs.length}`} wide>
+      <div className="space-y-2">
+        {jobs.length === 0 && (
+          <p className="py-6 text-center text-[12px] text-ink-faint">Ошибок нет.</p>
+        )}
+        {jobs.map((job) => (
+          <div key={job.id} className="rounded-xl bg-surface-2 px-3 py-2.5">
+            <div className="flex items-start gap-2">
+              <AlertCircle size={14} className="mt-0.5 shrink-0 text-danger" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12.5px] text-ink" title={job.title}>
+                  {job.title}
+                </p>
+                {job.source && (
+                  <p className="truncate font-mono text-[10.5px] text-ink-faint" title={job.source}>
+                    {job.source}
+                  </p>
+                )}
+                <p className="mt-1 whitespace-pre-wrap break-words text-[11.5px] leading-snug text-danger">
+                  {job.error || 'Причина неизвестна — загляните в журнал задачи.'}
+                </p>
+              </div>
+              {job.source && (
+                <IconButton
+                  className="h-7 w-7 shrink-0"
+                  title="Показать в проводнике"
+                  onClick={async () => {
+                    try {
+                      await api.reveal(job.source!)
+                    } catch (error) {
+                      toast((error as Error).message, 'error')
+                    }
+                  }}
+                >
+                  <FolderOpen size={13} />
+                </IconButton>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {jobs.length > 0 && (
+        <div className="mt-3 flex justify-end">
+          <Button
+            tone="ghost"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(asText)
+                toast('Список скопирован', 'ok')
+              } catch {
+                toast('Не удалось скопировать список', 'error')
+              }
+            }}
+          >
+            Скопировать список
+          </Button>
+        </div>
+      )}
+    </Modal>
   )
 }
 

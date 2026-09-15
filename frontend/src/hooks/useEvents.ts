@@ -63,9 +63,12 @@ export function useEvents() {
         }
 
         case 'job.log': {
-          // Логи держим только у той задачи, что открыта в подробностях.
-          const { jobs } = useStore.getState()
-          const target = jobs.find((item) => item.id === payload.data.id)
+          // Записи копим только у той задачи, чей журнал раскрыт. Иначе
+          // каждая строка ffmpeg перебирала весь список задач и обновляла
+          // хранилище — при очереди в несколько сотен файлов окно вставало.
+          const { logJobId, jobs } = useStore.getState()
+          if (!logJobId || logJobId !== payload.data.id) break
+          const target = jobs.find((item) => item.id === logJobId)
           if (target) {
             const log = [...(target.log ?? []), payload.data.line].slice(-300)
             store.upsertJob({ ...target, log })

@@ -169,7 +169,7 @@ export function Segmented<T extends string>({
   stacked = false,
 }: {
   value: T
-  options: { value: T; label: string; badge?: ReactNode; title?: string }[]
+  options: { value: T; label: string; badge?: ReactNode; title?: string; disabled?: boolean }[]
   onChange: (value: T) => void
   className?: string
   /** Сколько кнопок в ряду. Больше кнопок — перенесутся на следующий ряд. */
@@ -194,8 +194,9 @@ export function Segmented<T extends string>({
           key={option.value}
           type="button"
           title={option.title}
+          disabled={option.disabled}
           onClick={() => onChange(option.value)}
-          className={`flex min-w-0 rounded-lg font-medium transition-colors ${
+          className={`flex min-w-0 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
             stacked
               ? 'flex-col items-center justify-center gap-0.5 px-1 py-2 text-[12px]'
               : `items-center justify-center gap-1 px-1 py-1.5 ${

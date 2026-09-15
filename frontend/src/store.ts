@@ -71,6 +71,9 @@ interface State {
   toast: (text: string, tone?: Toast['tone'], group?: string) => void
   dismissToast: (id: number) => void
   setQueueOpen: (open: boolean) => void
+  /** Задача, у которой раскрыт журнал. Остальным записи не копим. */
+  logJobId: string | null
+  setLogJob: (id: string | null) => void
 }
 
 let toastId = 0
@@ -106,6 +109,7 @@ export const useStore = create<State>((set, get) => ({
   jobs: [],
   connected: false,
   toasts: [],
+  logJobId: null,
   queueOpen: false,
 
   async bootstrap() {
@@ -337,6 +341,10 @@ export const useStore = create<State>((set, get) => ({
 
   setQueueOpen(open) {
     set({ queueOpen: open })
+  },
+
+  setLogJob(id) {
+    set({ logJobId: id })
   },
 }))
 

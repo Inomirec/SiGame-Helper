@@ -28,6 +28,8 @@ class StreamInfo:
     bit_rate: int | None = None
     language: str | None = None
     pix_fmt: str | None = None
+    #: Сколько кадров в потоке. У GIF и WebP по этому числу видно анимацию.
+    frames: int | None = None
 
 
 @dataclass(slots=True)
@@ -47,6 +49,17 @@ class MediaInfo:
     @property
     def audio(self) -> StreamInfo | None:
         return next((s for s in self.streams if s.kind == "audio"), None)
+
+    @property
+    def animated(self) -> bool:
+        """Движущаяся картинка: GIF или WebP из нескольких кадров.
+
+        Такой файл нельзя молча сжать в AVIF или JPEG: в них помещается один
+        кадр, и от анимации осталась бы первая картинка — потеря, о которой
+        человек узнал бы только открыв результат.
+        """
+        video = self.video
+        return bool(video and video.frames and video.frames > 1)
 
     @property
     def has_audio(self) -> bool:
@@ -79,6 +92,7 @@ class MediaInfo:
             "sampleRate": audio.sample_rate if audio else None,
             "hasAudio": self.has_audio,
             "hasAlpha": self.has_alpha,
+            "animated": self.animated,
             "pixFmt": video.pix_fmt if video else None,
             "tags": self.tags,
             "streams": [
@@ -243,6 +257,7 @@ async def probe(path: str | Path, use_cache: bool = True) -> MediaInfo:
                 bit_rate=_to_int(raw.get("bit_rate")),
                 language=(raw.get("tags") or {}).get("language"),
                 pix_fmt=raw.get("pix_fmt"),
+                frames=_to_int(raw.get("nb_frames")),
             )
         )
 

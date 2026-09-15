@@ -47,6 +47,8 @@ export interface MediaInfo {
   sampleRate: number | null
   hasAudio: boolean
   hasAlpha: boolean
+  /** Движущаяся картинка: GIF или WebP из нескольких кадров. */
+  animated: boolean
   pixFmt: string | null
   tags: Record<string, string>
 }
