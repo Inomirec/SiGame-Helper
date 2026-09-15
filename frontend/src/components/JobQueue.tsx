@@ -243,6 +243,11 @@ const JobRow = memo(function JobRow({
   }, [job.id, toast])
   const running = job.status === 'running' || job.status === 'queued'
   const compression = savings(job.meta?.sizeBefore, job.meta?.sizeAfter)
+  // Файл мог и потяжелеть. Зелёным такое показывать нельзя: цвет читается
+  // как «всё хорошо», а тут ровно наоборот.
+  const grew = Boolean(
+    job.meta?.sizeBefore && job.meta?.sizeAfter && job.meta.sizeAfter >= job.meta.sizeBefore,
+  )
   // Сравнивать есть смысл только там, где остались оба файла: у скачивания
   // «до» просто не существует.
   const canCompare =
@@ -285,7 +290,7 @@ const JobRow = memo(function JobRow({
 
         {compression && job.status === 'done' && (
           <span
-            className="chip shrink-0 bg-ok/15 text-ok"
+            className={`chip shrink-0 ${grew ? 'bg-warn/15 text-warn' : 'bg-ok/15 text-ok'}`}
             title={[
               `${humanSize(job.meta.sizeBefore)} → ${humanSize(job.meta.sizeAfter)}`,
               shrinkRatio(job.meta.sizeBefore, job.meta.sizeAfter),
@@ -294,6 +299,15 @@ const JobRow = memo(function JobRow({
               .join(' · ')}
           >
             {compression}
+          </span>
+        )}
+
+        {job.meta?.keptOriginal && (
+          <span
+            className="chip shrink-0 bg-warn/15 text-warn"
+            title="Результат оказался тяжелее исходника, поэтому оригинал остался на месте"
+          >
+            оригинал оставлен
           </span>
         )}
 

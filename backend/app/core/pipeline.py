@@ -138,7 +138,19 @@ def submit_export(request: ExportRequest) -> Job:
         # Исходник убираем только после того, как результат оказался на диске
         # и весит больше нуля: иначе неудачная задача унесла бы оригинал.
         size_after = ctx.job.meta.get("sizeAfter") or 0
-        if request.replace_original and size_after and output.exists():
+        ready = bool(size_after) and output.exists()
+        # Результат не всегда легче исходника: у картинок с малым числом
+        # цветов AVIF порой проигрывает обычному PNG. Удалять оригинал в
+        # таком случае нельзя — человек остался бы с файлом потяжелее и без
+        # возможности вернуться к лёгкому.
+        grew = ready and bool(size_before) and size_after >= size_before
+        if request.replace_original and grew:
+            ctx.meta(keptOriginal=True)
+            ctx.log(
+                f"Исходник оставлен: результат тяжелее "
+                f"({fsutil.human_size(size_before)} → {fsutil.human_size(size_after)})"
+            )
+        elif request.replace_original and ready:
             # В корзину, а не насовсем: галочка запоминается между файлами,
             # и человек легко забудет, что она включена.
             try:
