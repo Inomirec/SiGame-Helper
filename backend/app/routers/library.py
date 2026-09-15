@@ -45,23 +45,37 @@ async def list_library(
             "totalSize": 0,
         }
 
-    kinds = None if kind == "all" else {kind}
-    files = fsutil.scan_directory(target, recursive=recursive, kinds=kinds)
-    # Подпапки нужны только в режиме навигации: в «плоском» виде файлы из них
-    # и так все показаны.
-    folders = [] if recursive else fsutil.list_folders(target)
+    def collect() -> tuple[list[dict], list[dict], dict[str, int]]:
+        """Обход папки. Выполняется в отдельном потоке — см. ниже."""
+        # Обходим один раз и фильтруем в памяти: раньше при выбранном типе
+        # или поиске папка обходилась дважды.
+        everything = fsutil.scan_directory(target, recursive=True)
+        counts = {"all": len(everything), "video": 0, "audio": 0, "image": 0}
+        for item in everything:
+            counts[item["kind"]] = counts.get(item["kind"], 0) + 1
 
-    if search:
-        needle = search.casefold()
-        files = [f for f in files if needle in f["name"].casefold()]
+        found = everything
+        if not recursive:
+            # В режиме навигации показываем только файлы самой папки.
+            here = str(target)
+            found = [item for item in found if item["folder"] == here]
+        if kind != "all":
+            found = [item for item in found if item["kind"] == kind]
+        if search:
+            needle = search.casefold()
+            found = [item for item in found if needle in item["name"].casefold()]
+        found.sort(key=lambda item: item["modified"], reverse=True)
 
-    files.sort(key=lambda item: item["modified"], reverse=True)
+        # Подпапки нужны только в режиме навигации: в «плоском» виде файлы
+        # из них и так все показаны.
+        subfolders = [] if recursive else fsutil.list_folders(target)
+        return found, subfolders, counts
 
-    # Счётчики считаем по всей папке, чтобы вкладки фильтра не «прыгали».
-    everything = files if kind == "all" and not search else fsutil.scan_directory(target)
-    counts = {"all": len(everything), "video": 0, "audio": 0, "image": 0}
-    for item in everything:
-        counts[item["kind"]] = counts.get(item["kind"], 0) + 1
+    # Обход диска — работа не быстрая: на папке в несколько тысяч файлов он
+    # занимает секунды. Прямо в обработчике он остановил бы весь сервер, и
+    # соседние запросы (удаление, обновление списка) просто ждали бы его
+    # молча. Поэтому уводим в отдельный поток.
+    files, folders, counts = await asyncio.to_thread(collect)
 
     workspace = Path(settings.resolved_workspace()).expanduser()
     try:
@@ -208,7 +222,8 @@ async def delete_file(payload: PathRequest) -> dict[str, Any]:
     last: OSError | None = None
     for attempt in range(6):
         try:
-            trash.to_trash(target)
+            # Обращение к оболочке Windows блокирующее — в поток его.
+            await asyncio.to_thread(trash.to_trash, target)
             last = None
             break
         except FileNotFoundError:

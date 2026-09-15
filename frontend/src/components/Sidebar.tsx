@@ -60,6 +60,7 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
   const toggleCheck = useStore((state) => state.toggleCheck)
   const setChecked = useStore((state) => state.setChecked)
   const refreshLibrary = useStore((state) => state.refreshLibrary)
+  const dropFile = useStore((state) => state.dropFile)
   const toast = useStore((state) => state.toast)
 
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -118,6 +119,11 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
   const totalSize = files.reduce((sum, file) => sum + file.size, 0)
 
   async function remove(path: string) {
+    // Окно подтверждения закрываем сразу: удаление занятого файла занимает
+    // до пары секунд, и открытая табличка всё это время выглядела так,
+    // будто нажатие не сработало.
+    setConfirmDelete(null)
+    const name = fileName(path)
     try {
       // Открытый файл держит наш же плеер. Сначала закрываем его и даём
       // Windows мгновение отпустить файл — иначе удаление упирается в
@@ -129,11 +135,13 @@ export function Sidebar({ onPickWorkspace }: { onPickWorkspace: () => void }) {
       await api.deleteFile(path)
       setChecked(checked.filter((item) => item !== path))
       if (activePath === path) void select(null)
+      // Убираем строку сразу, не дожидаясь обхода папки: на большой папке он
+      // занимает секунды, и всё это время удалённый файл висел бы в списке.
+      dropFile(path)
+      toast(`${name} — в корзине`, 'ok')
       void refreshLibrary()
     } catch (error) {
-      toast((error as Error).message, 'error')
-    } finally {
-      setConfirmDelete(null)
+      toast(`Не удалось удалить «${name}»: ${(error as Error).message}`, 'error')
     }
   }
 

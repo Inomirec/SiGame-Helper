@@ -54,6 +54,8 @@ interface State {
   refreshStatus: () => Promise<void>
   refreshSettings: () => Promise<void>
   refreshLibrary: () => Promise<void>
+  /** Убирает файл из списка, не дожидаясь обхода папки. */
+  dropFile: (path: string) => void
   refreshJobs: () => Promise<void>
   setFilter: (filter: FilterKind) => void
   setSearch: (search: string) => void
@@ -177,6 +179,16 @@ export const useStore = create<State>((set, get) => ({
     } finally {
       set({ libraryLoading: false })
     }
+  },
+
+  dropFile(path) {
+    const { files, counts } = get()
+    const gone = files.find((item) => item.path === path)
+    if (!gone) return
+    const next = { ...counts }
+    next.all = Math.max(0, (next.all ?? 0) - 1)
+    next[gone.kind] = Math.max(0, (next[gone.kind] ?? 0) - 1)
+    set({ files: files.filter((item) => item.path !== path), counts: next })
   },
 
   async refreshJobs() {
