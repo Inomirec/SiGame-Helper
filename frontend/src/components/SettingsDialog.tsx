@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Gauge, RefreshCw, XCircle } from 'lucide-react'
+import { Check, CheckCircle2, Gauge, RefreshCw, XCircle } from 'lucide-react'
 import { api } from '../lib/api'
 import { plural } from '../lib/format'
 import type { ToolInfo } from '../lib/types'
@@ -68,6 +68,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const setQueueOpen = useStore((state) => state.setQueueOpen)
 
   const [benchId, setBenchId] = useState<string | null>(null)
+  const [applying, setApplying] = useState(false)
   const [updating, setUpdating] = useState<string | null>(null)
   const [versions, setVersions] = useState<Record<string, UpdateInfo>>({})
   const [checking, setChecking] = useState(false)
@@ -89,7 +90,29 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const benchRunning = bench?.status === 'queued' || bench?.status === 'running'
   const measured = bench?.status === 'done' ? bench.meta : null
 
+  // Очереди получают своё число задач при запуске программы. Если настройку
+  // с тех пор поменяли, показываем, чем живёт очередь сейчас, и предлагаем
+  // применить — перезапускать программу ради этого не нужно.
+  const pools = status?.pools
+  const pending =
+    Boolean(pools) &&
+    (pools!.encode !== settings?.export.concurrency ||
+      pools!.image !== settings?.export.image_concurrency)
+
   if (!settings) return null
+
+  async function applyPools() {
+    setApplying(true)
+    try {
+      await api.applyPools()
+      await refreshStatus()
+      toast('Настройки применены — перезапускать программу не нужно', 'ok')
+    } catch (error) {
+      toast((error as Error).message, 'error')
+    } finally {
+      setApplying(false)
+    }
+  }
 
   async function measure() {
     try {
@@ -110,7 +133,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
       },
     })
     setBenchId(null)
-    toast('Настройки применены — они вступят в силу после перезапуска', 'ok')
+    await applyPools()
   }
 
   async function patch(value: Record<string, unknown>) {
@@ -200,7 +223,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                 max={8}
                 suffix="шт."
                 onChange={(value) => void patch({ export: { concurrency: value } })}
-                hint="Кодирование видео занимает процессор целиком, поэтому больше одного за раз помогает не всем. Вступит в силу после перезапуска."
+                hint="Кодирование видео занимает процессор целиком, поэтому больше одного за раз помогает не всем."
               />
               <NumberField
                 label="Картинок одновременно"
@@ -209,8 +232,30 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                 max={16}
                 suffix="шт."
                 onChange={(value) => void patch({ export: { image_concurrency: value } })}
-                hint="Картинка маленькая, и на хорошем процессоре их идёт много. Подберите под свой компьютер. Вступит в силу после перезапуска."
+                hint="Картинка маленькая, и на хорошем процессоре их идёт много. Подберите под свой компьютер."
               />
+
+              {pending && (
+                <div className="space-y-2 rounded-xl bg-warn/10 px-3 py-2.5 ring-1 ring-warn/25">
+                  <p className="text-[11.5px] leading-snug text-warn">
+                    Очередь пока работает по-старому: видео по {pools?.encode}, картинки по{' '}
+                    {pools?.image}. Новые числа начнут действовать, когда вы их примените.
+                  </p>
+                  <Button
+                    tone="primary"
+                    onClick={() => void applyPools()}
+                    disabled={applying}
+                    className="w-full"
+                  >
+                    {applying ? <Spinner size={13} /> : <Check size={13} />}
+                    Применить настройку
+                  </Button>
+                  <p className="text-[11px] leading-snug text-ink-faint">
+                    Файлы, которые уже обрабатываются, спокойно дойдут до конца — новое
+                    число подхватят следующие.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2 rounded-xl bg-surface-2 px-3 py-2.5">
                 <Button

@@ -177,6 +177,8 @@ export interface SystemStatus {
   capabilities: Record<string, boolean>
   hardware: Record<string, boolean>
   gpuAvailable: boolean
+  /** Сколько задач очереди ведут прямо сейчас — может отличаться от настроек. */
+  pools: Record<string, number>
 }
 
 export interface AppSettings {

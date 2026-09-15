@@ -128,7 +128,13 @@ class JobManager:
         self._contexts: dict[str, JobContext] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._queues: dict[str, asyncio.Queue[str]] = {}
-        self._workers: list[asyncio.Task[None]] = []
+        #: Воркеры по очередям. Список, а не число: его длину можно менять
+        #: на ходу, не перезапуская программу.
+        self._workers: dict[str, list[asyncio.Task[None]]] = {}
+        #: Сколько воркеров в очереди должно остаться.
+        self._limits: dict[str, int] = {}
+        #: Кто из них сейчас ждёт задачу. Такого можно снять без потерь.
+        self._idle: dict[str, set[asyncio.Task[None]]] = {}
         self._started = False
 
     # --- жизненный цикл --------------------------------------------------
@@ -149,20 +155,57 @@ class JobManager:
 
         for pool, size in pools.items():
             self._queues[pool] = asyncio.Queue()
-            for index in range(size):
-                self._workers.append(
-                    asyncio.create_task(self._worker(pool, index), name=f"{pool}-{index}")
-                )
+            self._workers[pool] = []
+            self._idle[pool] = set()
+            self._limits[pool] = size
+            self._spawn(pool, size)
+
+    def _spawn(self, pool: str, count: int) -> None:
+        for _ in range(count):
+            index = len(self._workers[pool])
+            self._workers[pool].append(
+                asyncio.create_task(self._worker(pool), name=f"{pool}-{index}")
+            )
+
+    def sizes(self) -> dict[str, int]:
+        """Сколько задач каждая очередь ведёт прямо сейчас."""
+        return {pool: len(tasks) for pool, tasks in self._workers.items()}
+
+    def resize(self, pool: str, size: int) -> int:
+        """Меняет число одновременных задач без перезапуска программы.
+
+        Лишних воркеров снимаем среди тех, кто сейчас ждёт задачу: они стоят
+        на пустой очереди, и отмена там ничего не рвёт. Занятые файлом уходят
+        сами, закончив его, — прерывать готовую наполовину работу нельзя.
+        """
+        if pool not in self._queues:
+            return 0
+        size = max(1, size)
+        self._limits[pool] = size
+        workers = self._workers[pool]
+        if len(workers) < size:
+            self._spawn(pool, size - len(workers))
+            return size
+        extra = len(workers) - size
+        for task in list(self._idle[pool]):
+            if extra <= 0:
+                break
+            task.cancel()
+            extra -= 1
+        return size
 
     async def stop(self) -> None:
-        for task in self._workers:
-            task.cancel()
+        for tasks in self._workers.values():
+            for task in tasks:
+                task.cancel()
         for task in self._tasks.values():
             task.cancel()
         for ctx in self._contexts.values():
             ctx.kill_all()
-        await asyncio.gather(*self._workers, return_exceptions=True)
+        everyone = [task for tasks in self._workers.values() for task in tasks]
+        await asyncio.gather(*everyone, return_exceptions=True)
         self._workers.clear()
+        self._idle.clear()
         self._started = False
 
     # --- публичный API ---------------------------------------------------
@@ -246,22 +289,38 @@ class JobManager:
         while len(self._order) > _HISTORY_LIMIT and finished:
             self._forget(finished.pop(0))
 
-    async def _worker(self, pool: str, index: int) -> None:
+    async def _worker(self, pool: str) -> None:
         queue = self._queues[pool]
-        while True:
-            job_id = await queue.get()
-            try:
-                job = self._jobs.get(job_id)
-                runner = self._runners.get(job_id)
-                if not job or not runner or job.status is JobStatus.CANCELED:
-                    continue
-                await self._execute(job, runner)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # воркер не должен умирать из-за одной задачи
-                bus.publish("job.error", {"id": job_id, "error": str(exc)})
-            finally:
-                queue.task_done()
+        me = asyncio.current_task()
+        try:
+            while True:
+                # Если число задач уменьшили, лишний воркер уходит здесь —
+                # когда предыдущий файл уже дописан, а новый ещё не взят.
+                if me is not None and len(self._workers[pool]) > self._limits[pool]:
+                    return
+                if me is not None:
+                    self._idle[pool].add(me)
+                try:
+                    job_id = await queue.get()
+                finally:
+                    if me is not None:
+                        self._idle[pool].discard(me)
+                try:
+                    job = self._jobs.get(job_id)
+                    runner = self._runners.get(job_id)
+                    if not job or not runner or job.status is JobStatus.CANCELED:
+                        continue
+                    await self._execute(job, runner)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # воркер не должен умирать из-за одной задачи
+                    bus.publish("job.error", {"id": job_id, "error": str(exc)})
+                finally:
+                    queue.task_done()
+        finally:
+            if me is not None:
+                with contextlib.suppress(ValueError):
+                    self._workers[pool].remove(me)
 
     async def _execute(self, job: Job, runner: Runner) -> None:
         ctx = JobContext(job, self)
@@ -300,6 +359,14 @@ class JobManager:
 
 
 manager = JobManager()
+
+
+def apply_limits() -> dict[str, int]:
+    """Приводит очереди в соответствие с настройками — без перезапуска."""
+    settings = config.load()
+    manager.resize("encode", settings.export.concurrency)
+    manager.resize("image", settings.export.image_concurrency)
+    return manager.sizes()
 
 
 # --- утилита запуска ffmpeg с разбором прогресса -------------------------

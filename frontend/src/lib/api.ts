@@ -108,6 +108,9 @@ export const api = {
   /** Запускает подбор числа одновременных задач. Возвращает задачу очереди. */
   benchmark: () => post<Job>('/api/benchmark'),
 
+  /** Применяет число одновременных задач к очередям без перезапуска. */
+  applyPools: () => post<{ pools: Record<string, number> }>('/api/pools'),
+
   jobs: () => request<{ jobs: Job[]; active: number }>('/api/jobs'),
   job: (id: string) => request<Job>(`/api/jobs/${id}`),
   cancelJob: (id: string) => post<{ ok: boolean }>(`/api/jobs/${id}/cancel`),
