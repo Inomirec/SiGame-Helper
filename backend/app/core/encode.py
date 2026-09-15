@@ -426,13 +426,18 @@ def build_command(
     # рабочий звук, который почему-то не слышно.
     muted = not audio_only and request.audio.volume <= 0
 
+    # Дорожку выбирает человек, если их в файле несколько: у аниме это
+    # обычно оригинал и озвучка, и первая — не всегда нужная.
+    track = max(0, request.audio.track)
+
     if audio_only:
-        args += ["-vn", "-map", "0:a:0?"]
+        args += ["-vn", "-map", f"0:a:{track}?"]
     elif muted:
         args += ["-map", "0:v:0", "-an"]
     else:
-        # Берём первую видео- и первую аудиодорожку; субтитры и данные отбрасываем.
-        args += ["-map", "0:v:0", "-map", "0:a:0?"]
+        # Берём первую видеодорожку и выбранную звуковую; субтитры и данные
+        # отбрасываем.
+        args += ["-map", "0:v:0", "-map", f"0:a:{track}?"]
 
     duration = request.trim.duration or (info.duration if info else None)
     if request.trim.start and request.trim.duration is None and info and info.duration:

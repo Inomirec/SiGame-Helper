@@ -46,6 +46,14 @@ export interface MediaInfo {
   audioChannels: number | null
   sampleRate: number | null
   hasAudio: boolean
+  /** Звуковые дорожки файла по порядку. У аниме их часто две. */
+  audioTracks?: {
+    index: number
+    codec: string | null
+    channels: number | null
+    language: string | null
+    title: string | null
+  }[]
   hasAlpha: boolean
   /** Движущаяся картинка: GIF или WebP из нескольких кадров. */
   animated: boolean
@@ -126,6 +134,10 @@ export interface AudioOptions {
   fade_in: number
   fade_out: number
   mono: boolean
+  /** Какую звуковую дорожку брать, если их несколько. */
+  track: number
+  /** Громкость дорожки: 1 — как есть, 0 — совсем без звука. */
+  volume: number
 }
 
 /** Мазок кистью или ластиком в координатах оригинала. */

@@ -30,6 +30,8 @@ class StreamInfo:
     pix_fmt: str | None = None
     #: Сколько кадров в потоке. У GIF и WebP по этому числу видно анимацию.
     frames: int | None = None
+    #: Название дорожки, если его записали: «Русский», «Комментарии режиссёра».
+    title: str | None = None
 
 
 @dataclass(slots=True)
@@ -49,6 +51,15 @@ class MediaInfo:
     @property
     def audio(self) -> StreamInfo | None:
         return next((s for s in self.streams if s.kind == "audio"), None)
+
+    @property
+    def audio_tracks(self) -> list[StreamInfo]:
+        """Все звуковые дорожки по порядку.
+
+        У аниме и фильмов их часто две: оригинал и озвучка. Программа брала
+        первую молча, и человек узнавал о подмене, когда вопрос уже в паке.
+        """
+        return [s for s in self.streams if s.kind == "audio"]
 
     @property
     def animated(self) -> bool:
@@ -110,6 +121,18 @@ class MediaInfo:
                     "pixFmt": s.pix_fmt,
                 }
                 for s in self.streams
+            ],
+            # Отдельным списком, чтобы интерфейсу не пришлось самому отбирать
+            # звуковые потоки и считать их порядковые номера.
+            "audioTracks": [
+                {
+                    "index": number,
+                    "codec": s.codec,
+                    "channels": s.channels,
+                    "language": s.language,
+                    "title": s.title,
+                }
+                for number, s in enumerate(self.audio_tracks)
             ],
         }
 
@@ -259,6 +282,7 @@ async def probe(path: str | Path, use_cache: bool = True) -> MediaInfo:
                 sample_rate=_to_int(raw.get("sample_rate")),
                 bit_rate=_to_int(raw.get("bit_rate")),
                 language=(raw.get("tags") or {}).get("language"),
+                title=(raw.get("tags") or {}).get("title"),
                 pix_fmt=raw.get("pix_fmt"),
                 frames=_to_int(raw.get("nb_frames")),
             )

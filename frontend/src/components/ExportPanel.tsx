@@ -7,7 +7,7 @@ import type { AudioOptions, FileInfo, Preset, VideoOptions } from '../lib/types'
 import { useStore } from '../store'
 import type { TrimState } from './MediaEditor'
 import type { Fades } from './Timeline'
-import { Button, Section, Segmented, Toggle } from './ui'
+import { Button, Section, Segmented, Select, Toggle } from './ui'
 
 const DEFAULT_VIDEO: VideoOptions = {
   codec: 'av1_svt',
@@ -25,6 +25,8 @@ const DEFAULT_VIDEO: VideoOptions = {
 const DEFAULT_AUDIO: AudioOptions = {
   codec: 'opus',
   bitrate_kbps: 96,
+  track: 0,
+  volume: 1,
   loudnorm: true,
   loudnorm_i: -16,
   loudnorm_tp: -1.5,
@@ -42,6 +44,29 @@ const DEFAULT_AUDIO: AudioOptions = {
  * Наружу вынесено только то, что человек может осмысленно решить сам — что
  * сделать со звуком и как назвать файл.
  */
+/** Понятная подпись дорожки: язык, название, число каналов. */
+function trackLabel(
+  track: { index: number; codec: string | null; channels: number | null; language: string | null; title: string | null },
+  total: number,
+): string {
+  const parts: string[] = [`${track.index + 1} из ${total}`]
+  const language = track.language && track.language !== 'und' ? LANGUAGES[track.language] ?? track.language : null
+  if (language) parts.push(language)
+  if (track.title) parts.push(track.title)
+  if (track.channels === 1) parts.push('моно')
+  else if (track.channels === 2) parts.push('стерео')
+  else if (track.channels) parts.push(`${track.channels} кан.`)
+  return parts.join(' · ')
+}
+
+/** Языки, которые реально встречаются в паках. Остальные показываем как есть. */
+const LANGUAGES: Record<string, string> = {
+  rus: 'русский', ru: 'русский',
+  eng: 'английский', en: 'английский',
+  jpn: 'японский', ja: 'японский',
+  ukr: 'украинский', uk: 'украинский',
+}
+
 export function ExportPanel({
   file,
   trim,
@@ -155,6 +180,10 @@ export function ExportPanel({
 
   const activePreset = kindPresets.find((preset) => preset.id === presetId)
 
+  // Дорожки есть только у открытого файла: к отмеченным в пачке выбор не
+  // применяется — у них своя разметка, и номер оттуда ничего не значит.
+  const tracks = file.media?.audioTracks ?? []
+
   const buildRequest = (source: string, withTrim: boolean) => ({
     source,
     kind: file.kind,
@@ -171,8 +200,9 @@ export function ExportPanel({
       ...audio,
       fade_in: withTrim ? fades.audio.in : 0,
       fade_out: withTrim ? fades.audio.out : 0,
-      // Громкость выставлена для открытого файла — к пачке её не тащим.
+      // Громкость и выбор дорожки — про открытый файл, к пачке их не тащим.
       volume: withTrim ? trackVolume : 1,
+      track: withTrim ? audio.track ?? 0 : 0,
     },
     stream_copy: streamCopy,
     replace_original: deleteOriginal,
@@ -349,6 +379,19 @@ export function ExportPanel({
                 }}
                 label="Кодировать на видеокарте"
                 hint="Высокая скорость, но в теории могут появиться незначительные артефакты. Полезно для больших видео, когда важно время."
+              />
+            )}
+            {tracks.length > 1 && (
+              <Select
+                label="Звуковая дорожка"
+                value={String(audio.track ?? 0)}
+                options={tracks.map((track) => ({
+                  value: String(track.index),
+                  label: trackLabel(track, tracks.length),
+                }))}
+                onChange={(value) => setAudio({ ...audio, track: Number(value) })}
+                disabled={streamCopy}
+                hint="В файле несколько дорожек — например, оригинал и озвучка. Программа берёт первую, если не выбрать другую."
               />
             )}
             <Toggle
