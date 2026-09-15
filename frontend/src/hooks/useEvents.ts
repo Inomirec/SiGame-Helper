@@ -33,6 +33,10 @@ export function useEvents() {
       switch (payload.event) {
         case 'hello':
           store.setConnected(true)
+          // Пока связи не было, новости о задачах шли в пустоту: строки так и
+          // оставались «Выполняется», хотя файлы давно готовы. Вернуть их
+          // нельзя — перечитываем очередь целиком.
+          void store.refreshJobs()
           break
 
         case 'job.created':

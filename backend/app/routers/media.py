@@ -42,16 +42,24 @@ def _disposition(name: str) -> str:
 
 
 async def _iter_file(path: Path, start: int, end: int) -> AsyncIterator[bytes]:
-    """Читает файл кусками от start до end включительно."""
+    """Читает файл кусками от start до end включительно.
+
+    Чтение уходит в отдельный поток. Пока плеер тянет большой файл, каждый
+    кусок занимал приложение целиком: на локальном диске это заметно, а на
+    внешнем или сетевом окно ощутимо подтормаживает.
+    """
     remaining = end - start + 1
-    with path.open("rb") as handle:
-        handle.seek(start)
+    handle = await asyncio.to_thread(path.open, "rb")
+    try:
+        await asyncio.to_thread(handle.seek, start)
         while remaining > 0:
-            chunk = handle.read(min(CHUNK, remaining))
+            chunk = await asyncio.to_thread(handle.read, min(CHUNK, remaining))
             if not chunk:
                 break
             remaining -= len(chunk)
             yield chunk
+    finally:
+        await asyncio.to_thread(handle.close)
 
 
 def _parse_range(header: str, size: int) -> tuple[int, int] | None:

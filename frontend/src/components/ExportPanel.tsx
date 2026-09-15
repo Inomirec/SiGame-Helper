@@ -31,7 +31,6 @@ const DEFAULT_AUDIO: AudioOptions = {
   loudnorm_i: -16,
   loudnorm_tp: -1.5,
   loudnorm_lra: 11,
-  loudnorm_two_pass: false,
   fade_in: 0,
   fade_out: 0,
   mono: false,
@@ -421,7 +420,7 @@ export function ExportPanel({
                 savePrefs({ subfolder: value })
               }}
               label="Положить результат в подпапку"
-              hint="Программа создаст подпапку «Обработанное», если её ещё нет, и сложит файл туда. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
+              hint="Программа создаст подпапку рядом с оригиналом и сложит файл туда. Имя подпапки задаётся в настройках. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
             />
             <Toggle
               checked={deleteOriginal}

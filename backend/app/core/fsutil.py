@@ -129,16 +129,46 @@ def sanitize_name(name: str, *, fallback: str = "file") -> str:
     return name[:180] or fallback
 
 
-def unique_path(path: Path, *, overwrite: bool = False) -> Path:
-    """Возвращает свободное имя, добавляя ``(2)``, ``(3)`` и т.д."""
-    if overwrite or not path.exists():
+#: Имена, которые уже отданы задачам, но файлов по ним ещё нет.
+#:
+#: Пустой файл на диске появляется только когда кодировщик доберётся до него,
+#: а до тех пор имя выглядит свободным. При нескольких задачах разом две из
+#: них получали одно и то же имя, и вторая молча затирала работу первой: два
+#: исходника с одинаковым именем и разными расширениями (``кадр.jpg`` и
+#: ``кадр.png``) дают один и тот же результат.
+_taken: set[str] = set()
+
+
+def _key(path: Path) -> str:
+    """Ключ имени. Windows не различает регистр — и мы не различаем."""
+    return str(path).casefold()
+
+
+def unique_path(path: Path, *, overwrite: bool = False, reserve: bool = False) -> Path:
+    """Возвращает свободное имя, добавляя ``(2)``, ``(3)`` и т.д.
+
+    ``reserve`` запоминает выданное имя, чтобы соседняя задача его не заняла.
+    Освобождать его нужно через :func:`release_path`, когда файл дописан.
+    """
+    if overwrite:
+        return path
+    if not path.exists() and _key(path) not in _taken:
+        if reserve:
+            _taken.add(_key(path))
         return path
     stem, suffix, parent = path.stem, path.suffix, path.parent
     for index in range(2, 1000):
         candidate = parent / f"{stem} ({index}){suffix}"
-        if not candidate.exists():
+        if not candidate.exists() and _key(candidate) not in _taken:
+            if reserve:
+                _taken.add(_key(candidate))
             return candidate
     raise FileExistsError(f"Не удалось подобрать свободное имя для {path}")
+
+
+def release_path(path: Path) -> None:
+    """Снимает запрет с имени: файл уже на диске, дальше решает он сам."""
+    _taken.discard(_key(path))
 
 
 def default_output_dir(source: Path, kind: str | None = None) -> Path:

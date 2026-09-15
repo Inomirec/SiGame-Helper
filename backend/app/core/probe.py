@@ -14,6 +14,10 @@ from . import binaries
 _cache: dict[tuple[str, float, int], "MediaInfo"] = {}
 _CACHE_LIMIT = 512
 
+#: Кодеки, само название которых означает движение. Неподвижные картинки тех
+#: же форматов называются иначе: ``webp``, ``png``.
+_ANIMATED_CODECS = {"webp_anim", "apng"}
+
 
 @dataclass(slots=True)
 class StreamInfo:
@@ -63,14 +67,23 @@ class MediaInfo:
 
     @property
     def animated(self) -> bool:
-        """Движущаяся картинка: GIF или WebP из нескольких кадров.
+        """Движущаяся картинка: GIF, WebP или APNG из нескольких кадров.
 
         Такой файл нельзя молча сжать в AVIF или JPEG: в них помещается один
         кадр, и от анимации осталась бы первая картинка — потеря, о которой
         человек узнал бы только открыв результат.
+
+        По числу кадров одному верить нельзя: у GIF ffprobe его сообщает, а у
+        движущегося WebP и APNG оставляет пустым — и проверка пропускала их,
+        как обычные картинки. Зато кодек у них называется иначе, чем у
+        неподвижных: ``webp_anim`` против ``webp``, ``apng`` против ``png``.
         """
         video = self.video
-        return bool(video and video.frames and video.frames > 1)
+        if not video:
+            return False
+        if video.frames and video.frames > 1:
+            return True
+        return (video.codec or "") in _ANIMATED_CODECS
 
     @property
     def has_audio(self) -> bool:

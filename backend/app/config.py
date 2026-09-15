@@ -86,6 +86,21 @@ class Settings(BaseModel):
 _cache: Settings | None = None
 
 
+#: Старые служебные имена папок и их нынешние замены. Умолчание поменяли, но
+#: у тех, кто пользовался программой раньше, в настройках осталось прежнее
+#: значение — и папка по-прежнему называлась ``_processed``.
+_RENAMED_FOLDERS = {"_processed": "Обработанное", "_downloads": "Скачанное"}
+
+
+def _migrate(settings: Settings) -> bool:
+    """Подтягивает настройки старых версий. True, если что-то изменилось."""
+    folder = settings.export.output_folder
+    if folder in _RENAMED_FOLDERS:
+        settings.export.output_folder = _RENAMED_FOLDERS[folder]
+        return True
+    return False
+
+
 def load() -> Settings:
     """Читает конфиг с диска (с кэшированием в памяти)."""
     global _cache
@@ -105,21 +120,28 @@ def load() -> Settings:
                 _cache = Settings()
         else:
             _cache = Settings()
+        if _migrate(_cache):
+            _write(_cache)
         return _cache
+
+
+def _write(settings: Settings) -> None:
+    """Кладёт настройки на диск. Замок берёт вызывающий."""
+    ensure_dirs()
+    path = config_file()
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(settings.model_dump(mode="json"), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
 
 
 def save(settings: Settings) -> Settings:
     """Записывает конфиг на диск атомарно и обновляет кэш."""
     global _cache
     with _lock:
-        ensure_dirs()
-        path = config_file()
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(
-            json.dumps(settings.model_dump(mode="json"), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        tmp.replace(path)
+        _write(settings)
         _cache = settings
         return settings
 

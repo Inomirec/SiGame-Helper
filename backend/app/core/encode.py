@@ -28,6 +28,22 @@ def _fmt_time(value: float) -> str:
     return f"{max(value, 0.0):.3f}"
 
 
+def clip_duration(trim: Trim, info: MediaInfo | None) -> float | None:
+    """Сколько длится то, что получится после обрезки.
+
+    Считается от обеих меток сразу. Раньше случай «поставлена только метка
+    Out» брал длину всего файла: у ролика на час с меткой Out на минуте
+    затухание вставало на 59-й минуте — то есть за концом результата, и его
+    просто не было. Молча: ни ошибки, ни предупреждения.
+    """
+    total = info.duration if info else None
+    start = trim.start or 0.0
+    end = trim.end if trim.end is not None else total
+    if end is None:
+        return None
+    return max(end - start, 0.0)
+
+
 def build_video_filters(
     options: VideoOptions,
     info: MediaInfo | None,
@@ -71,7 +87,6 @@ def build_audio_filters(
     *,
     tempo: float = 1.0,
     duration: float | None = None,
-    measured: dict[str, str] | None = None,
 ) -> list[str]:
     """Цепочка аудиофильтров: темп, нормализация громкости, фейды."""
     filters: list[str] = []
@@ -99,17 +114,6 @@ def build_audio_filters(
             f"TP={options.loudnorm_tp:g}",
             f"LRA={options.loudnorm_lra:g}",
         ]
-        if measured:
-            # Второй проход: подставляем замеры, включаем линейную нормализацию,
-            # которая не «дышит» громкостью внутри трека.
-            params += [
-                f"measured_I={measured['input_i']}",
-                f"measured_TP={measured['input_tp']}",
-                f"measured_LRA={measured['input_lra']}",
-                f"measured_thresh={measured['input_thresh']}",
-                f"offset={measured.get('target_offset', '0.0')}",
-                "linear=true",
-            ]
         filters.append("loudnorm=" + ":".join(params))
 
     # curve=qsin — четверть синусоиды: громкость по ней уходит равномерно на
@@ -377,31 +381,11 @@ def input_args(trim: Trim, source: str, *, accurate: bool) -> list[str]:
     return args
 
 
-def build_loudnorm_probe(request: ExportRequest) -> list[str]:
-    """Команда первого прохода двухпроходной нормализации (только анализ)."""
-    from . import binaries
-
-    options = request.audio
-    args = [binaries.ffmpeg(), "-hide_banner", "-nostdin"]
-    args += input_args(request.trim, request.source, accurate=True)
-    args += [
-        "-map", "0:a:0",
-        "-af",
-        (
-            f"loudnorm=I={options.loudnorm_i:g}:TP={options.loudnorm_tp:g}"
-            f":LRA={options.loudnorm_lra:g}:print_format=json"
-        ),
-        "-f", "null", "-",
-    ]
-    return args
-
-
 def build_command(
     request: ExportRequest,
     output: Path,
     info: MediaInfo | None,
     *,
-    measured: dict[str, str] | None = None,
     crf: int | None = None,
 ) -> list[str]:
     """Полная команда ffmpeg для одного задания экспорта."""
@@ -439,9 +423,7 @@ def build_command(
         # отбрасываем.
         args += ["-map", "0:v:0", "-map", f"0:a:{track}?"]
 
-    duration = request.trim.duration or (info.duration if info else None)
-    if request.trim.start and request.trim.duration is None and info and info.duration:
-        duration = max(info.duration - request.trim.start, 0.0)
+    duration = clip_duration(request.trim, info)
 
     if stream_copy:
         args += ["-c", "copy"]
@@ -465,7 +447,6 @@ def build_command(
                     request.audio,
                     tempo=1.0 if audio_only else request.video.tempo,
                     duration=duration,
-                    measured=measured,
                 )
                 if audio_filters:
                     args += ["-af", ",".join(audio_filters)]

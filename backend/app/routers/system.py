@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import platform
 import sys
 
@@ -22,8 +23,14 @@ def _hardware_known() -> bool:
 
 @router.get("/status")
 async def status(refresh: bool = False) -> dict:
-    """Наличие и версии внешних инструментов + возможности ffmpeg."""
-    detected = binaries.detect_all(refresh=refresh)
+    """Наличие и версии внешних инструментов + возможности ffmpeg.
+
+    Проверка запускает ffmpeg и соседние программы и ждёт их ответа. Прямо
+    здесь она останавливала бы всё приложение: пока идёт опрос, сервер не
+    отвечает ни на один запрос, и окно замирает вместе с прогрессом очереди.
+    Поэтому ожидание уходит в отдельный поток.
+    """
+    detected = await asyncio.to_thread(binaries.detect_all, refresh)
     tools = {
         name: {
             "name": info.name,
@@ -37,7 +44,13 @@ async def status(refresh: bool = False) -> dict:
     }
     ffmpeg = detected.get("ffmpeg")
     # Проверять видеокарту при каждом запросе дорого — только по явной просьбе.
-    hardware = binaries.probe_hardware() if refresh or _hardware_known() else {}
+    # Проверка пробует закодировать несколько кадров каждым кодировщиком: на
+    # холодную это пара секунд, а на чужой машине может быть и дольше.
+    hardware = (
+        await asyncio.to_thread(binaries.probe_hardware)
+        if refresh or _hardware_known()
+        else {}
+    )
     return {
         # Метка приложения: по ней вторая копия узнаёт, что на порту именно
         # мы, а не чужая программа, случайно занявшая его.
@@ -110,7 +123,7 @@ async def update_tool(tool: str) -> dict:
         ok, output = await binaries.upgrade_downloader(tool)
     except (RuntimeError, ValueError, OSError) as exc:
         raise HTTPException(500, str(exc)) from exc
-    info = binaries.detect_all(refresh=True).get(tool)
+    info = (await asyncio.to_thread(binaries.detect_all, True)).get(tool)
     return {"ok": ok, "output": output, "version": info.version if info else None}
 
 

@@ -350,8 +350,6 @@ def subprocess_env() -> dict[str, str]:
 def _proxy_configured() -> bool:
     """True, когда пользователь сам включил прокси в настройках."""
     try:
-        from . import config
-
         settings = config.load().download
         return bool(settings.proxy_enabled and settings.proxy)
     except Exception:

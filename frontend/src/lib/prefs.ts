@@ -23,7 +23,7 @@ export interface Prefs {
   mediaReplace?: boolean
   /** Показывать живое превью сжатия. */
   imagePreview?: boolean
-  /** Складывать результат в подпапку «Обработанное». */
+  /** Складывать результат в подпапку рядом с оригиналом. */
   subfolder?: boolean
 }
 

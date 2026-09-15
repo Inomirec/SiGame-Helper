@@ -264,7 +264,7 @@ export function MediaEditor({
     setGrabbing(true)
     try {
       await api.exportFrame({ source: file.path, time: media.currentTime })
-      toast('Кадр сохранён в подпапку «Обработанное» — без сжатия, как в видео', 'ok')
+      toast('Кадр сохранён — без сжатия, в том же качестве, что в видео', 'ok')
       setQueueOpen(true)
     } catch (error) {
       toast((error as Error).message, 'error')

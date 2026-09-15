@@ -17,6 +17,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .. import config
@@ -127,6 +128,37 @@ class JobContext:
 Runner = Callable[[JobContext], Awaitable[None]]
 
 
+def _discard_partial(job: Job) -> None:
+    """Убирает недописанный результат отменённой задачи.
+
+    Кодировщик останавливают на полуслове, и в папке остаётся файл с обычным
+    именем: в медиатеке он выглядит готовым, открывается в плеере, а внутри —
+    половина ролика. Попав в пак, такой файл обрывает вопрос на середине.
+
+    Тянуть время нельзя, но и торопиться некуда: файл ещё может быть занят
+    только что убитым процессом, поэтому убираем его отдельной задачей, в
+    несколько заходов.
+    """
+    path = Path(job.output or "")
+    if not job.output or not path.exists():
+        return
+
+    async def cleanup() -> None:
+        for delay in (0.0, 0.3, 1.0):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                await asyncio.to_thread(path.unlink)
+                return
+            except FileNotFoundError:
+                return
+            except OSError:
+                continue
+
+    with contextlib.suppress(RuntimeError):
+        asyncio.get_running_loop().create_task(cleanup())
+
+
 class JobManager:
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
@@ -143,6 +175,9 @@ class JobManager:
         #: Кто из них сейчас ждёт задачу. Такого можно снять без потерь.
         self._idle: dict[str, set[asyncio.Task[None]]] = {}
         self._started = False
+        #: Программа закрывается. Отличает остановку всей очереди от отмены
+        #: одной задачи: в первом случае воркер обязан уйти, во втором — нет.
+        self._stopping = False
 
     # --- жизненный цикл --------------------------------------------------
     async def start(self) -> None:
@@ -202,6 +237,7 @@ class JobManager:
         return size
 
     async def stop(self) -> None:
+        self._stopping = True
         for tasks in self._workers.values():
             for task in tasks:
                 task.cancel()
@@ -351,8 +387,14 @@ class JobManager:
             job.status = JobStatus.CANCELED
             job.message = "Отменено"
             ctx.kill_all()
-            # Отмена конкретной задачи не должна ронять воркер, поэтому
-            # исключение дальше не пробрасываем.
+            _discard_partial(job)
+            if self._stopping:
+                # Программа закрывается — здесь воркер обязан уйти вместе с
+                # ней. Проглоченная отмена оставляла его ждать новых задач, и
+                # остановка очереди не заканчивалась никогда.
+                raise
+            # Отмена одной задачи не должна ронять воркер, поэтому дальше
+            # исключение не пробрасываем.
         except Exception as exc:
             job.status = JobStatus.ERROR
             job.error = str(exc)

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 import time
 from pathlib import Path
 
@@ -24,7 +22,8 @@ from .probe import probe
 
 # --- экспорт / сжатие ---------------------------------------------------
 
-def resolve_output(request: ExportRequest, extension: str) -> Path:
+def resolve_output(request: ExportRequest, extension: str, *, reserve: bool = False) -> Path:
+    """Имя для результата. ``reserve`` занимает его за этой задачей."""
     source = Path(request.source)
     directory = (
         Path(request.output_dir).expanduser()
@@ -36,36 +35,7 @@ def resolve_output(request: ExportRequest, extension: str) -> Path:
     candidate = directory / f"{stem}{extension}"
     if candidate.resolve() == source.resolve():
         candidate = directory / f"{stem}_1{extension}"
-    return fsutil.unique_path(candidate, overwrite=request.overwrite)
-
-
-async def _measure_loudness(ctx: JobContext, request: ExportRequest) -> dict[str, str] | None:
-    """Первый проход loudnorm: снимаем реальные показатели громкости."""
-    args = encode.build_loudnorm_probe(request)
-    ctx.progress(0.02, "Анализ громкости (1/2)")
-
-    process = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        creationflags=binaries.CREATE_NO_WINDOW,
-        env=binaries.subprocess_env(),
-    )
-    ctx.track(process)
-    try:
-        _, err = await process.communicate()
-    finally:
-        ctx.untrack(process)
-
-    text = err.decode("utf-8", "replace")
-    match = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", text, re.DOTALL)
-    if not match:
-        ctx.log("Не удалось снять показатели громкости, используется одиночный проход")
-        return None
-    try:
-        return {k: str(v) for k, v in json.loads(match.group(0)).items()}
-    except json.JSONDecodeError:
-        return None
+    return fsutil.unique_path(candidate, overwrite=request.overwrite, reserve=reserve)
 
 
 def submit_export(request: ExportRequest) -> Job:
@@ -77,116 +47,113 @@ def submit_export(request: ExportRequest) -> Job:
         size_before = source.stat().st_size
         started = time.monotonic()
         ctx.meta(sizeBefore=size_before)
+        # Имя результата занимается за этой задачей сразу, ещё до того как
+        # появится сам файл: при нескольких задачах разом соседняя выбирала
+        # то же самое свободное имя и затирала чужую работу.
+        output: Path | None = None
 
-        if request.kind == "image":
-            # Гифку в AVIF не сжать. Меняем формат, только если человек на это
-            # согласился: решаем до выбора имени, от формата зависят и
-            # расширение, и приписка.
-            asked = request.image.format
-            if request.allow_format_switch:
-                request.image.format = await images.resolve_format(source, request.image)
-            if request.image.format != asked:
-                if request.suffix == images.SUFFIXES.get(asked):
-                    request.suffix = images.SUFFIXES[request.image.format]
-                ctx.meta(formatSwitched=request.image.format.upper())
-                ctx.log(
-                    f"Это движущаяся картинка: {asked.upper()} сохранил бы только "
-                    f"один кадр, поэтому сжимаем в {request.image.format.upper()}."
+        try:
+            if request.kind == "image":
+                # Гифку в AVIF не сжать. Меняем формат, только если человек на это
+                # согласился: решаем до выбора имени, от формата зависят и
+                # расширение, и приписка.
+                asked = request.image.format
+                if request.allow_format_switch:
+                    request.image.format = await images.resolve_format(source, request.image)
+                if request.image.format != asked:
+                    if request.suffix == images.SUFFIXES.get(asked):
+                        request.suffix = images.SUFFIXES[request.image.format]
+                    ctx.meta(formatSwitched=request.image.format.upper())
+                    ctx.log(
+                        f"Это движущаяся картинка: {asked.upper()} сохранил бы только "
+                        f"один кадр, поэтому сжимаем в {request.image.format.upper()}."
+                    )
+
+                extension = images.EXTENSIONS[request.image.format]
+                output = resolve_output(request, extension, reserve=True)
+                ctx.job.output = str(output)
+
+                async def report(value: float, message: str) -> None:
+                    ctx.progress(value, message)
+
+                result = await images.compress(source, output, request.image, report)
+                ctx.meta(
+                    sizeAfter=result.size,
+                    width=result.width,
+                    height=result.height,
+                    qualityUsed=result.quality_used,
+                )
+            else:
+                info = await probe(source)
+                extension = encode.container_extension(request, info)
+                output = resolve_output(request, extension, reserve=True)
+                ctx.job.output = str(output)
+                output.parent.mkdir(parents=True, exist_ok=True)
+
+                # Ускорение сокращает итоговую длительность — прогресс считаем по ней.
+                duration = encode.clip_duration(request.trim, info) or 0.0
+                tempo = request.video.tempo if request.kind == "video" else 1.0
+                effective = duration / tempo if tempo else duration
+
+                args = encode.build_command(request, output, info)
+                ctx.log("$ " + encode.to_display_string(args))
+                # Смещение и скорость нужны окну «До и после»: результат обрезан
+                # и может идти быстрее, поэтому напрямую с исходником он
+                # не совпадает — без этих чисел половинки разъезжаются.
+                ctx.meta(
+                    command=encode.to_display_string(args),
+                    trimStart=request.trim.start or 0.0,
+                    tempo=tempo or 1.0,
                 )
 
-            extension = images.EXTENSIONS[request.image.format]
-            output = resolve_output(request, extension)
-            ctx.job.output = str(output)
+                await run_ffmpeg(
+                    ctx, args,
+                    total_duration=effective or None,
+                    label="Кодирование" if not request.stream_copy else "Нарезка",
+                )
+                ctx.meta(sizeAfter=output.stat().st_size if output.exists() else 0)
 
-            async def report(value: float, message: str) -> None:
-                ctx.progress(value, message)
+            # Исходник убираем только после того, как результат оказался на диске
+            # и весит больше нуля: иначе неудачная задача унесла бы оригинал.
+            size_after = ctx.job.meta.get("sizeAfter") or 0
+            ready = bool(size_after) and output.exists()
+            # Результат не всегда легче исходника: у картинок с малым числом
+            # цветов AVIF порой проигрывает обычному PNG. Удалять оригинал в
+            # таком случае нельзя — человек остался бы с файлом потяжелее и без
+            # возможности вернуться к лёгкому.
+            grew = ready and bool(size_before) and size_after >= size_before
+            if request.replace_original and grew:
+                ctx.meta(keptOriginal=True)
+                ctx.log(
+                    f"Исходник оставлен: результат тяжелее "
+                    f"({fsutil.human_size(size_before)} → {fsutil.human_size(size_after)})"
+                )
+            elif request.replace_original and ready:
+                # В корзину, а не насовсем: галочка запоминается между файлами,
+                # и человек легко забудет, что она включена.
+                try:
+                    trash.to_trash(source)
+                    ctx.log(f"Исходник убран в корзину: {source.name}")
+                    # Пометка для очереди: сравнивать «до и после» больше не с чем,
+                    # и кнопку сравнения у такой задачи показывать нечестно.
+                    ctx.meta(sourceRemoved=True)
+                except OSError as exc:
+                    # Обработка уже прошла, результат на месте — ронять из-за
+                    # занятого исходника всю задачу незачем.
+                    ctx.log(f"Исходник не удалось убрать в корзину: {exc}")
 
-            result = await images.compress(source, output, request.image, report)
-            ctx.meta(
-                sizeAfter=result.size,
-                width=result.width,
-                height=result.height,
-                qualityUsed=result.quality_used,
-            )
-        else:
-            info = await probe(source)
-            extension = encode.container_extension(request, info)
-            output = resolve_output(request, extension)
-            ctx.job.output = str(output)
-            output.parent.mkdir(parents=True, exist_ok=True)
-
-            measured = None
-            base = 0.0
-            if request.audio.loudnorm and request.audio.loudnorm_two_pass and not request.stream_copy:
-                measured = await _measure_loudness(ctx, request)
-                base = 0.35 if measured else 0.0
-
-            duration = request.trim.duration
-            if duration is None:
-                total = info.duration or 0.0
-                duration = max(total - (request.trim.start or 0.0), 0.0)
-                if request.trim.end is not None:
-                    duration = request.trim.end - (request.trim.start or 0.0)
-            # Ускорение сокращает итоговую длительность — прогресс считаем по ней.
-            tempo = request.video.tempo if request.kind == "video" else 1.0
-            effective = duration / tempo if tempo else duration
-
-            args = encode.build_command(request, output, info, measured=measured)
-            ctx.log("$ " + encode.to_display_string(args))
-            # Смещение и скорость нужны окну «До и после»: результат обрезан
-            # и может идти быстрее, поэтому напрямую с исходником он
-            # не совпадает — без этих чисел половинки разъезжаются.
-            ctx.meta(
-                command=encode.to_display_string(args),
-                trimStart=request.trim.start or 0.0,
-                tempo=tempo or 1.0,
-            )
-
-            await run_ffmpeg(
-                ctx, args,
-                total_duration=effective or None,
-                base=base, span=1.0 - base,
-                label="Кодирование" if not request.stream_copy else "Нарезка",
-            )
-            ctx.meta(sizeAfter=output.stat().st_size if output.exists() else 0)
-
-        # Исходник убираем только после того, как результат оказался на диске
-        # и весит больше нуля: иначе неудачная задача унесла бы оригинал.
-        size_after = ctx.job.meta.get("sizeAfter") or 0
-        ready = bool(size_after) and output.exists()
-        # Результат не всегда легче исходника: у картинок с малым числом
-        # цветов AVIF порой проигрывает обычному PNG. Удалять оригинал в
-        # таком случае нельзя — человек остался бы с файлом потяжелее и без
-        # возможности вернуться к лёгкому.
-        grew = ready and bool(size_before) and size_after >= size_before
-        if request.replace_original and grew:
-            ctx.meta(keptOriginal=True)
-            ctx.log(
-                f"Исходник оставлен: результат тяжелее "
-                f"({fsutil.human_size(size_before)} → {fsutil.human_size(size_after)})"
-            )
-        elif request.replace_original and ready:
-            # В корзину, а не насовсем: галочка запоминается между файлами,
-            # и человек легко забудет, что она включена.
-            try:
-                trash.to_trash(source)
-                ctx.log(f"Исходник убран в корзину: {source.name}")
-                # Пометка для очереди: сравнивать «до и после» больше не с чем,
-                # и кнопку сравнения у такой задачи показывать нечестно.
-                ctx.meta(sourceRemoved=True)
-            except OSError as exc:
-                # Обработка уже прошла, результат на месте — ронять из-за
-                # занятого исходника всю задачу незачем.
-                ctx.log(f"Исходник не удалось убрать в корзину: {exc}")
-
-        if size_before and size_after:
-            ctx.meta(
-                ratio=round(size_after / size_before, 4),
-                saved=size_before - size_after,
-            )
-        ctx.meta(elapsed=round(time.monotonic() - started, 1))
-        ctx.progress(1.0, "Готово")
-        bus.publish("library.changed", {"path": str(Path(ctx.job.output or "").parent)})
+            if size_before and size_after:
+                ctx.meta(
+                    ratio=round(size_after / size_before, 4),
+                    saved=size_before - size_after,
+                )
+            ctx.meta(elapsed=round(time.monotonic() - started, 1))
+            ctx.progress(1.0, "Готово")
+            bus.publish("library.changed", {"path": str(Path(ctx.job.output or "").parent)})
+        finally:
+            # Файл дописан (или задача сорвалась) — дальше имя защищает сам файл.
+            if output is not None:
+                fsutil.release_path(output)
 
     label = request.preset_label or encode.describe(request)["summary"]
     return manager.submit(
@@ -287,7 +254,7 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
 
         stamp = f"{int(request.time // 60):02d}-{request.time % 60:05.2f}".replace(".", "_")
         stem = fsutil.sanitize_name(f"{source.stem}{request.suffix} {stamp}", fallback="кадр")
-        output = fsutil.unique_path(directory / f"{stem}.png")
+        output = fsutil.unique_path(directory / f"{stem}.png", reserve=True)
         ctx.job.output = str(output)
 
         ctx.progress(0.15, "Достаю кадр")
@@ -326,6 +293,7 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
             width=stream.width if stream else 0,
             height=stream.height if stream else 0,
         )
+        fsutil.release_path(output)
         ctx.progress(1.0, "Готово")
         bus.publish("library.changed", {"path": str(directory)})
 

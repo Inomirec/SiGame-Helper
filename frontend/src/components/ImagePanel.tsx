@@ -379,7 +379,7 @@ export function ImagePanel({
               savePrefs({ subfolder: value })
             }}
             label="Положить результат в подпапку"
-            hint="Программа создаст подпапку «Обработанное», если её ещё нет, и сложит файл туда. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
+            hint="Программа создаст подпапку рядом с оригиналом и сложит файл туда. Имя подпапки задаётся в настройках. Если выключить — результат ляжет в ту же папку, где лежит оригинал."
           />
           <Toggle
             checked={deleteOriginal}
@@ -475,10 +475,12 @@ export function ImagePanel({
             </p>
           </div>
         </Modal>
+        {/* Подпись идёт за галочкой: раньше она обещала подпапку всегда, даже
+            когда та выключена, и имя папки было вписано в текст намертво — а
+            задаётся оно в настройках. */}
         <p className="mt-1.5 text-[11px] leading-snug text-ink-faint">
-          Результат ляжет в подпапку <span className="font-mono text-ink-dim">Обработанное</span>{' '}
-          рядом с исходником, с припиской{' '}
-          <span className="font-mono text-ink-dim">{SUFFIXES[options.format]}</span>.
+          Результат ляжет {intoSubfolder ? 'в подпапку рядом с исходником' : 'рядом с исходником'},
+          с припиской <span className="font-mono text-ink-dim">{SUFFIXES[options.format]}</span>.
         </p>
       </div>
     </div>

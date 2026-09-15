@@ -156,11 +156,22 @@ def _mount_frontend(app: FastAPI) -> None:
     # старый интерфейс, который просит несуществующие файлы.
     no_cache = {"Cache-Control": "no-store, must-revalidate"}
 
+    root = static.resolve()
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa(full_path: str) -> FileResponse:
-        """Любой неизвестный путь отдаём в React — маршрутизация на стороне клиента."""
-        candidate = static / full_path
-        if full_path and candidate.is_file():
+        """Любой неизвестный путь отдаём в React — маршрутизация на стороне клиента.
+
+        Отдаём строго из папки с интерфейсом. Раньше проверялось только то,
+        что файл существует, и адрес вида ``/../../файл`` уводил за её
+        пределы: так читался любой файл на диске мимо проверки рабочих папок,
+        которая стоит на всех остальных путях.
+        """
+        try:
+            candidate = (static / full_path).resolve()
+        except OSError:
+            return FileResponse(index, headers=no_cache)
+        if full_path and candidate.is_relative_to(root) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(index, headers=no_cache)
 

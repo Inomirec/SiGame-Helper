@@ -545,6 +545,11 @@ def _gallery_common_args() -> list[str]:
     return args
 
 
+def _files_in(folder: Path) -> set[Path]:
+    """Снимок содержимого папки. Зовётся только из отдельного потока."""
+    return {p for p in folder.rglob("*") if p.is_file()}
+
+
 async def run_gallery_dl(
     ctx: JobContext,
     url: str,
@@ -565,7 +570,9 @@ async def run_gallery_dl(
     args.append(url)
 
     # Запоминаем содержимое папки, чтобы отличить новые файлы от старых.
-    before = {p for p in output_dir.rglob("*") if p.is_file()}
+    # Обход уводим в отдельный поток: папка «Скачанное» со временем разрастается
+    # до тысяч файлов, и прямо здесь он останавливал бы всё приложение.
+    before = await asyncio.to_thread(_files_in, output_dir)
 
     ctx.log(f"$ gallery-dl {url}")
     process = await asyncio.create_subprocess_exec(
@@ -613,7 +620,7 @@ async def run_gallery_dl(
     if not files:
         # На часть сайтов gallery-dl молча кладёт файлы, не печатая пути, —
         # добираем их сравнением снимков папки.
-        files = sorted({p for p in output_dir.rglob("*") if p.is_file()} - before)
+        files = sorted(await asyncio.to_thread(_files_in, output_dir) - before)
 
     if code != 0 and not files:
         tail = "\n".join(errors[-4:]) or f"gallery-dl завершился с кодом {code}"

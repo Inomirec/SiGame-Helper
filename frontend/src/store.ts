@@ -212,7 +212,10 @@ export const useStore = create<State>((set, get) => ({
   },
 
   openFolder(path) {
-    set({ currentFolder: path })
+    // Отметки снимаем вместе с папкой: они относятся к файлам, которых в
+    // новом списке нет. Слева горело «Выбрано: 30», а кнопка обработки
+    // видела только те файлы, что на экране, — и молча брала один.
+    set({ currentFolder: path, checked: [] })
     void get().refreshLibrary()
   },
 
@@ -221,7 +224,7 @@ export const useStore = create<State>((set, get) => ({
     // её, мы бы показали прежнее содержимое, и смена папки выглядела бы как
     // будто ничего не произошло.
     await api.addWorkspace(path)
-    set({ currentFolder: null })
+    set({ currentFolder: null, checked: [] })
     await get().refreshSettings()
     await get().refreshLibrary()
   },

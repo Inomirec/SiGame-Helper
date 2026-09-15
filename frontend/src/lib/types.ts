@@ -130,7 +130,6 @@ export interface AudioOptions {
   loudnorm_i: number
   loudnorm_tp: number
   loudnorm_lra: number
-  loudnorm_two_pass: boolean
   fade_in: number
   fade_out: number
   mono: boolean

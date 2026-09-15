@@ -50,8 +50,6 @@ class AudioOptions(BaseModel):
     loudnorm_tp: float = -1.5
     #: Диапазон громкости, LU.
     loudnorm_lra: float = 11.0
-    #: Двухпроходная нормализация: точнее, но требует полного анализа файла.
-    loudnorm_two_pass: bool = False
     fade_in: float = Field(default=0.0, ge=0, le=30)
     fade_out: float = Field(default=0.0, ge=0, le=30)
     #: Привести к моно (заметно экономит вес для речи).
@@ -135,7 +133,8 @@ class ExportRequest(BaseModel):
     video: VideoOptions = Field(default_factory=VideoOptions)
     audio: AudioOptions = Field(default_factory=AudioOptions)
     image: ImageOptions = Field(default_factory=ImageOptions)
-    #: Куда сохранить. ``None`` = подпапка ``Обработанное`` рядом с исходником.
+    #: Куда сохранить. ``None`` = подпапка рядом с исходником, её имя берётся
+    #: из настроек.
     output_dir: str | None = None
     #: Имя файла без расширения. ``None`` = имя исходника + суффикс.
     output_name: str | None = None
