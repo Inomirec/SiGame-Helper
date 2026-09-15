@@ -144,6 +144,9 @@ def submit_export(request: ExportRequest) -> Job:
             try:
                 trash.to_trash(source)
                 ctx.log(f"Исходник убран в корзину: {source.name}")
+                # Пометка для очереди: сравнивать «до и после» больше не с чем,
+                # и кнопку сравнения у такой задачи показывать нечестно.
+                ctx.meta(sourceRemoved=True)
             except OSError as exc:
                 # Обработка уже прошла, результат на месте — ронять из-за
                 # занятого исходника всю задачу незачем.

@@ -249,7 +249,11 @@ const JobRow = memo(function JobRow({
     job.status === 'done' &&
     job.kind !== 'download' &&
     Boolean(job.source) &&
-    Boolean(job.output)
+    Boolean(job.output) &&
+    // Исходник ушёл в корзину — сравнивать не с чем. Раньше кнопка
+    // оставалась, а в окне сквозь пустую половину просвечивал сжатый файл,
+    // и выходило, будто разницы нет вовсе.
+    !job.meta?.sourceRemoved
 
   const statusIcon = {
     queued: <Loader2 size={13} className="text-ink-faint" />,
