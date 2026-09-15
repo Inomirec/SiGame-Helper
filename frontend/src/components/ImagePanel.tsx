@@ -7,7 +7,7 @@ import { strokesToPng } from '../lib/paint'
 import type { FileInfo, ImageOptions, ImagePreview, Preset } from '../lib/types'
 import { useStore } from '../store'
 import type { ImageEdit } from './ImageEditorTop'
-import { Button, Section, Segmented, Select, Toggle } from './ui'
+import { Button, Modal, Section, Segmented, Select, Toggle } from './ui'
 
 const DEFAULT_IMAGE: ImageOptions = {
   format: 'avif',
@@ -84,13 +84,14 @@ export function ImagePanel({
   )
   const [busy, setBusy] = useState(false)
   // Движущуюся картинку умеет сохранить только WebP: в AVIF и JPEG влезает
-  // один кадр, и от анимации остался бы стоп-кадр.
+  // один кадр, и от анимации остался бы стоп-кадр. Формат за человека не
+  // меняем — спрашиваем перед самой обработкой.
   const animated = Boolean(file.media?.animated)
-  useEffect(() => {
-    if (animated && options.format !== 'webp') {
-      setOptions((current) => ({ ...current, format: 'webp' }))
-    }
-  }, [animated, options.format])
+  const [askSwitch, setAskSwitch] = useState(false)
+  // Превью такой картинки в неподходящем формате не считается: задача на
+  // сервере честно откажется, и в панели была бы красная строка вместо
+  // объяснения, которое и так стоит рядом с форматами.
+  const movingUnsupported = animated && options.format !== 'webp'
   const [showPreview, setShowPreview] = useState(() => loadPrefs().imagePreview ?? true)
   const [preview, setPreview] = useState<ImagePreview | null>(null)
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -142,7 +143,7 @@ export function ImagePanel({
   // успевает, и без паузы мы бы запускали ffmpeg на каждый пиксель хода.
   const requestId = useRef(0)
   useEffect(() => {
-    if (!showPreview) {
+    if (!showPreview || movingUnsupported) {
       setPreview(null)
       setPreviewError(null)
       onPreview(null)
@@ -178,7 +179,7 @@ export function ImagePanel({
   // Панель живёт до конца выбора файла — прибираем превью за собой.
   useEffect(() => () => onPreview(null), [onPreview])
 
-  const buildRequest = (source: string, withEdits: boolean) => ({
+  const buildRequest = (source: string, withEdits: boolean, switchFormats: boolean) => ({
     source,
     kind: 'image' as const,
     image: {
@@ -193,6 +194,7 @@ export function ImagePanel({
     suffix: SUFFIXES[options.format] ?? '_сжатый',
     preset_label: activePreset?.label,
     replace_original: deleteOriginal,
+    allow_format_switch: switchFormats,
   })
 
   // Отмеченные в медиатеке картинки обрабатываются той же кнопкой.
@@ -207,14 +209,35 @@ export function ImagePanel({
   // Ничего не отмечено — кнопка сжимает открытую картинку.
   const single = batch.length === 0
 
-  async function run() {
+  // Про движение у отмеченных файлов заранее известно только расширение:
+  // читать каждый файл ради этого — лишняя работа на пачке в сотню картинок.
+  // Поэтому спрашиваем по расширению, а настоящую проверку делает сервер и
+  // меняет формат только у тех, кто и правда движется.
+  const MOVING_EXT = ['.gif', '.webp']
+  const moving = batch.filter((path) =>
+    MOVING_EXT.some((ext) => path.toLowerCase().endsWith(ext)),
+  )
+  const needsAsking =
+    options.format !== 'webp' && (movingUnsupported || (!single && moving.length > 0))
+
+  async function start() {
+    if (needsAsking) {
+      setAskSwitch(true)
+      return
+    }
+    await run()
+  }
+
+  async function run(switchFormats = false) {
     setBusy(true)
     try {
       if (single) {
-        await api.export(buildRequest(file.path, true))
+        await api.export(buildRequest(file.path, true, switchFormats))
       } else {
         // Правки кадра нарисованы для открытой картинки, к остальным их не тащим.
-        const items = batch.map((path) => buildRequest(path, path === file.path))
+        const items = batch.map((path) =>
+          buildRequest(path, path === file.path, switchFormats),
+        )
         const result = await api.exportBatch(items)
         if (result.errors.length) toast(result.errors[0].error, 'error')
         toast(
@@ -271,7 +294,7 @@ export function ImagePanel({
           <Segmented<Format>
             value={options.format as Format}
             onChange={(value) => setOptions({ ...options, format: value })}
-            options={animated ? FORMATS.map((item) => ({ ...item, disabled: item.value !== 'webp' })) : FORMATS}
+            options={FORMATS}
           />
           {animated && (
             <p className="rounded-lg bg-surface-2 px-3 py-2 text-[11px] leading-snug text-ink-dim">
@@ -395,7 +418,7 @@ export function ImagePanel({
       </div>
 
       <div className="border-t border-line-soft bg-surface px-4 py-3">
-        <Button tone="primary" onClick={() => void run()} disabled={busy} className="w-full py-2.5">
+        <Button tone="primary" onClick={() => void start()} disabled={busy} className="w-full py-2.5">
           <Play size={15} />
           {!single
             ? `Сжать ${batch.length} ${plural(batch.length, ['картинку', 'картинки', 'картинок'])}`
@@ -408,6 +431,50 @@ export function ImagePanel({
             Открытая картинка не отмечена — её программа не тронет.
           </p>
         )}
+
+        <Modal
+          open={askSwitch}
+          onClose={() => setAskSwitch(false)}
+          title="Движущиеся картинки"
+        >
+          <div className="space-y-3 text-[12.5px] leading-snug text-ink-dim">
+            <p>
+              {single || movingUnsupported
+                ? 'Эта картинка движется, а выбранный формат хранит только один кадр — от движения ничего не останется.'
+                : `Среди отмеченных есть движущиеся картинки (${moving.length} шт.), а выбранный формат хранит только один кадр.`}
+            </p>
+            <p>
+              Сохранить движение умеет только WebP. Ответ запомнится на всю эту
+              пачку: все движущиеся файлы в ней пойдут в WebP, остальные — тем
+              форматом, что выбран, как и задумано.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <Button
+                tone="primary"
+                className="flex-1"
+                onClick={() => {
+                  setAskSwitch(false)
+                  void run(true)
+                }}
+              >
+                Взять WebP для всех таких
+              </Button>
+              <Button
+                onClick={() => {
+                  setAskSwitch(false)
+                  void run(false)
+                }}
+              >
+                Оставить как есть
+              </Button>
+            </div>
+            <p className="text-[11px] text-ink-faint">
+              «Оставить как есть» — движущиеся файлы просто не обработаются, в
+              очереди будет видно, какие именно. Что уже обрабатывается сейчас,
+              это окно не останавливает.
+            </p>
+          </div>
+        </Modal>
         <p className="mt-1.5 text-[11px] leading-snug text-ink-faint">
           Результат ляжет в подпапку <span className="font-mono text-ink-dim">Обработанное</span>{' '}
           рядом с исходником, с припиской{' '}

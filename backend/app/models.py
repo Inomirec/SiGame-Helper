@@ -142,6 +142,9 @@ class ExportRequest(BaseModel):
     overwrite: bool = False
     #: Убрать исходник в корзину после успешной обработки.
     replace_original: bool = False
+    #: Разрешено ли взять другой формат, если выбранный не сохранит движение.
+    #: Решает человек: программа спрашивает и подставляет ответ сюда.
+    allow_format_switch: bool = False
 
 
 class BatchExportRequest(BaseModel):

@@ -308,6 +308,23 @@ async def _apply_paint(source: Path, data: str, workdir: Path) -> Path:
     return painted
 
 
+#: Приписка к имени файла по формату — та же, что предлагает интерфейс.
+SUFFIXES = {"avif": "_avif", "jpg": "_jpeg", "webp": "_webp", "png": "_png"}
+
+
+async def resolve_format(source: Path, options: ImageOptions) -> str:
+    """Формат, которым файл получится сжать на самом деле.
+
+    Движение держит только WebP. Человек, который поставил гифку в очередь,
+    хочет её сжать, а не выбрать формат — поэтому молча берём тот, который
+    это умеет, вместо того чтобы ронять задачу и заставлять начинать заново.
+    """
+    if options.format == "webp":
+        return options.format
+    info = await probe(source)
+    return "webp" if info and info.animated else options.format
+
+
 async def compress(
     source: Path,
     output: Path,

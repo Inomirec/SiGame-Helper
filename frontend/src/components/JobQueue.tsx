@@ -306,6 +306,15 @@ const JobRow = memo(function JobRow({
           </span>
         )}
 
+        {job.meta?.formatSwitched && (
+          <span
+            className="chip shrink-0 bg-accent/15 text-accent-soft"
+            title="Движение сохраняет только WebP — в других форматах остался бы один кадр"
+            >
+            в {job.meta.formatSwitched}
+          </span>
+        )}
+
         {job.meta?.keptOriginal && (
           <span
             className="chip shrink-0 bg-warn/15 text-warn"
