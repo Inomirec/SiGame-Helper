@@ -283,7 +283,11 @@ const JobRow = memo(function JobRow({
         <div className="min-w-0 flex-1">
           <p className="truncate text-[12.5px]">{job.title}</p>
           <p className="truncate text-[11px] text-ink-faint">
-            {job.status === 'error' ? job.error : job.message}
+            {job.status === 'error'
+              ? // В строке очереди помещается одна строка — берём первую фразу
+                // объяснения, а весь вывод лежит в списке ошибок и в журнале.
+                (job.hint ?? job.error ?? '').split('\n')[0]
+              : job.message}
             {job.meta?.preset ? ` · ${job.meta.preset}` : ''}
           </p>
         </div>
@@ -370,6 +374,43 @@ const JobRow = memo(function JobRow({
  * говорят: искать их глазами по всему списку — занятие на полчаса. Здесь
  * сразу видно, что не прошло, где лежит и что сказала программа.
  */
+/**
+ * Текст ошибки: понятное объяснение и под ним вывод ffmpeg.
+ *
+ * Объяснение приходит отдельным полем, а не склеенным с выводом: иначе
+ * пришлось бы угадывать, где кончается одно и начинается другое — а в самом
+ * объяснении тоже есть пустые строки. Показывать оба куска одинаково красным
+ * нельзя: самое полезное тонет в наборе английских строк, из-за которых
+ * человек сюда и пришёл.
+ */
+function ErrorText({ hint, text }: { hint?: string | null; text: string | null }) {
+  if (!hint && !text) {
+    return (
+      <p className="mt-1 text-[11.5px] leading-snug text-ink-dim">
+        Причина неизвестна — загляните в журнал задачи.
+      </p>
+    )
+  }
+  return (
+    <div className="mt-1 space-y-1.5">
+      {hint && (
+        <p className="whitespace-pre-wrap break-words text-[12px] leading-snug text-ink">
+          {hint}
+        </p>
+      )}
+      {text && (
+        <p
+          className={`whitespace-pre-wrap break-words font-mono text-[10.5px] leading-snug ${
+            hint ? 'text-ink-faint' : 'text-danger'
+          }`}
+        >
+          {text}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ErrorsModal({
   open,
   onClose,
@@ -382,8 +423,12 @@ function ErrorsModal({
   const toast = useStore((state) => state.toast)
 
   const asText = jobs
-    .map((job) => `${job.source ?? job.title}\n    ${job.error ?? 'причина неизвестна'}`)
-    .join('\n\n')
+    .map((job) =>
+      [job.source ?? job.title, job.hint, job.error ?? 'причина неизвестна']
+        .filter(Boolean)
+        .join('\n\n'),
+    )
+    .join('\n\n———\n\n')
 
   return (
     <Modal open={open} onClose={onClose} title={`Не удалось обработать: ${jobs.length}`} wide>
@@ -404,9 +449,7 @@ function ErrorsModal({
                     {job.source}
                   </p>
                 )}
-                <p className="mt-1 whitespace-pre-wrap break-words text-[11.5px] leading-snug text-danger">
-                  {job.error || 'Причина неизвестна — загляните в журнал задачи.'}
-                </p>
+                <ErrorText hint={job.hint} text={job.error} />
               </div>
               {job.source && (
                 <IconButton

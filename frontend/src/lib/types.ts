@@ -76,6 +76,8 @@ export interface Job {
   source: string | null
   output: string | null
   error: string | null
+  /** Понятное объяснение ошибки, если программа её узнала. */
+  hint?: string | null
   createdAt: number
   startedAt: number | null
   finishedAt: number | null

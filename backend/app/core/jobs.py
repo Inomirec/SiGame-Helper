@@ -21,6 +21,7 @@ from typing import Any, Awaitable, Callable
 
 from .. import config
 from .events import bus
+from . import failures
 
 #: Сколько строк лога держим в памяти на задачу.
 _LOG_LIMIT = 400
@@ -50,6 +51,8 @@ class Job:
     source: str | None = None
     output: str | None = None
     error: str | None = None
+    #: Понятное объяснение ошибки, если программа её узнала.
+    hint: str | None = None
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
     finished_at: float | None = None
@@ -67,6 +70,7 @@ class Job:
             "source": self.source,
             "output": self.output,
             "error": self.error,
+            "hint": self.hint,
             "createdAt": self.created_at,
             "startedAt": self.started_at,
             "finishedAt": self.finished_at,
@@ -352,6 +356,12 @@ class JobManager:
         except Exception as exc:
             job.status = JobStatus.ERROR
             job.error = str(exc)
+            # Разбираем всё, а не только вывод ffmpeg: «[WinError 2] Не удается
+            # найти указанный файл» приходит от самой Windows и объяснения
+            # требует не меньше. Загрузчики объясняют себя сами — там в тексте
+            # уже есть «Что делать», второй раз не нужно.
+            if "Что делать" not in job.error:
+                job.hint = failures.hint(job.error)
             job.message = "Ошибка"
             ctx.log(str(exc))
         finally:
@@ -371,13 +381,15 @@ def failure_text(lines: list[str], code: int = 1) -> str:
     text = chr(10).join(lines).strip()
     if not text:
         return f"ffmpeg завершился с кодом {code}"
-    if len(text) <= _ERROR_LIMIT:
-        return text
-    hidden = len(text) - _ERROR_LIMIT
-    return (
-        text[:_ERROR_LIMIT].rstrip()
-        + f"{chr(10)}… и ещё {hidden} символов — весь вывод в журнале задачи."
-    )
+    if len(text) > _ERROR_LIMIT:
+        hidden = len(text) - _ERROR_LIMIT
+        text = (
+            text[:_ERROR_LIMIT].rstrip()
+            + f"{chr(10)}… и ещё {hidden} символов — весь вывод в журнале задачи."
+        )
+    # Разбор здесь не зовём: он один на всю задачу и стоит в `_execute`,
+    # куда стекаются и ошибки ffmpeg, и ошибки самой Windows.
+    return text
 
 
 manager = JobManager()
