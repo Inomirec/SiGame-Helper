@@ -18,7 +18,7 @@ from ..models import (
 )
 from . import benchmark, binaries, download, encode, fsutil, images, presets, toolchain, trash
 from .events import bus
-from .jobs import Job, JobContext, manager, run_ffmpeg
+from .jobs import Job, JobContext, failure_text, manager, run_ffmpeg
 from .probe import probe
 
 
@@ -300,7 +300,8 @@ def submit_frame_grab(request: FrameGrabRequest) -> Job:
 
         if process.returncode != 0 or not output.exists():
             raise RuntimeError(
-                err.decode("utf-8", "replace").strip()[:300] or "не удалось получить кадр"
+                failure_text(err.decode("utf-8", "replace").splitlines())
+                or "не удалось получить кадр"
             )
 
         info = await probe(output)

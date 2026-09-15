@@ -236,7 +236,9 @@ async def probe(path: str | Path, use_cache: bool = True) -> MediaInfo:
     out, err = await proc.communicate()
     if proc.returncode != 0:
         raise RuntimeError(
-            f"ffprobe не смог прочитать файл: {err.decode('utf-8', 'replace')[:300]}"
+            # Режем щедро: причина обычно в первой строке, но обрывать её
+            # на половине слова незачем — читать всё равно человеку.
+            f"ffprobe не смог прочитать файл: {err.decode('utf-8', 'replace').strip()[:2000]}"
         )
 
     data = json.loads(out.decode("utf-8", "replace") or "{}")

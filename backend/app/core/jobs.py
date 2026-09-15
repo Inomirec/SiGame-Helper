@@ -24,6 +24,9 @@ from .events import bus
 
 #: Сколько строк лога держим в памяти на задачу.
 _LOG_LIMIT = 400
+#: Сколько символов ошибки доносим до окна. Остальное всегда лежит в журнале
+#: задачи целиком.
+_ERROR_LIMIT = 2000
 #: Сколько завершённых задач храним в истории.
 _HISTORY_LIMIT = 300
 
@@ -358,6 +361,25 @@ class JobManager:
             self.emit(job, event="job.finished")
 
 
+def failure_text(lines: list[str], code: int = 1) -> str:
+    """Собирает сообщение об ошибке из вывода ffmpeg.
+
+    Берём начало, а не конец: причина стоит первой, а дальше идут её
+    последствия. Раньше до человека доходило «Task finished with error»,
+    а настоящее «Invalid PNG signature» отрезалось.
+    """
+    text = chr(10).join(lines).strip()
+    if not text:
+        return f"ffmpeg завершился с кодом {code}"
+    if len(text) <= _ERROR_LIMIT:
+        return text
+    hidden = len(text) - _ERROR_LIMIT
+    return (
+        text[:_ERROR_LIMIT].rstrip()
+        + f"{chr(10)}… и ещё {hidden} символов — весь вывод в журнале задачи."
+    )
+
+
 manager = JobManager()
 
 
@@ -433,5 +455,4 @@ async def run_ffmpeg(
         ctx.untrack(process)
 
     if code != 0:
-        tail = "\n".join(stderr_lines[-6:]) or f"ffmpeg завершился с кодом {code}"
-        raise RuntimeError(tail)
+        raise RuntimeError(failure_text(stderr_lines, code))

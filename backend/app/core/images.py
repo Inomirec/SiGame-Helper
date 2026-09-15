@@ -17,6 +17,7 @@ from typing import Awaitable, Callable
 
 from ..models import ImageOptions
 from . import binaries
+from .jobs import failure_text
 from .probe import MediaInfo, probe
 
 ProgressCb = Callable[[float, str], Awaitable[None] | None]
@@ -229,7 +230,9 @@ async def _run(args: list[str]) -> None:
     )
     _, err = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(err.decode("utf-8", "replace").strip()[:600] or "ffmpeg упал")
+        raise RuntimeError(
+            failure_text(err.decode("utf-8", "replace").splitlines(), proc.returncode)
+        )
 
 
 async def alpha_is_used(source: Path) -> bool:
